@@ -1,11 +1,14 @@
 fastapi[all]
-uvicorn
+uvicorn[standard]
 sqlalchemy[asyncio]
 alembic
 asyncpg
 pydantic-settings
-celery
+celery[redis]
 redis
 python-jose[cryptography]
 passlib[bcrypt]
 httpx
+psycopg2-binary
+flower
+itsdangerous
