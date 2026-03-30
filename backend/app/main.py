@@ -3,6 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import sys
+import asyncio
+
+# Apply Windows event loop fix for psycopg if running on Windows
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from app.config import settings
 from app.core.middleware import RequestLoggingMiddleware
@@ -55,16 +61,16 @@ from app.api.v1 import anomalies, reports, ai, users        # noqa: E402
 PREFIX = "/api/v1"
 
 app.include_router(auth.router,        prefix=PREFIX, tags=["Auth"])
-app.include_router(users.router,       prefix=PREFIX, tags=["Users"])
-app.include_router(workspaces.router,  prefix=PREFIX, tags=["Workspaces"])
-app.include_router(api_keys.router,    prefix=PREFIX, tags=["API Keys"])
+# app.include_router(users.router,       prefix=PREFIX, tags=["Users"])
+# app.include_router(workspaces.router,  prefix=PREFIX, tags=["Workspaces"])
+# app.include_router(api_keys.router,    prefix=PREFIX, tags=["API Keys"])
 app.include_router(ingest.router,      prefix=PREFIX, tags=["Ingestion"])
-app.include_router(dashboards.router,  prefix=PREFIX, tags=["Dashboards"])
-app.include_router(funnels.router,     prefix=PREFIX, tags=["Funnels"])
-app.include_router(retention.router,   prefix=PREFIX, tags=["Retention"])
-app.include_router(anomalies.router,   prefix=PREFIX, tags=["Anomalies"])
-app.include_router(reports.router,     prefix=PREFIX, tags=["Reports"])
-app.include_router(ai.router,          prefix=PREFIX, tags=["AI"])
+# app.include_router(dashboards.router,  prefix=PREFIX, tags=["Dashboards"])
+# app.include_router(funnels.router,     prefix=PREFIX, tags=["Funnels"])
+# app.include_router(retention.router,   prefix=PREFIX, tags=["Retention"])
+# app.include_router(anomalies.router,   prefix=PREFIX, tags=["Anomalies"])
+# app.include_router(reports.router,     prefix=PREFIX, tags=["Reports"])
+# app.include_router(ai.router,          prefix=PREFIX, tags=["AI"])
 
 
 # ── Health check ──────────────────────────────────────────────────────────────

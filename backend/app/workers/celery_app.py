@@ -10,15 +10,17 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
         "app.workers.event_tasks",
-        "app.workers.aggregation_tasks",
-        "app.workers.anomaly_tasks",
-        "app.workers.report_tasks",
-        "app.workers.ai_tasks",
+        # "app.workers.aggregation_tasks",
+        # "app.workers.anomaly_tasks",
+        # "app.workers.report_tasks",
+        # "app.workers.ai_tasks",
     ],
 )
 
 # ── Celery configuration ──────────────────────────────────────────────────────
 celery_app.conf.update(
+    broker_url=settings.CELERY_BROKER_URL,
+    result_backend=settings.CELERY_RESULT_BACKEND,
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
