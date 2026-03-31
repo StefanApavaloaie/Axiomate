@@ -1,10 +1,14 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import type { ReactNode } from 'react'
 import { useAuth } from '@/hooks/useAuth'
+import AppShell from '@/components/layout/AppShell'
 import LoginPage from '@/pages/LoginPage'
 import AuthCallbackPage from '@/pages/AuthCallbackPage'
-import type { ReactNode } from 'react'
+import DashboardPage from '@/pages/DashboardPage'
+import FunnelsPage from '@/pages/FunnelsPage'
+import RetentionPage from '@/pages/RetentionPage'
+import AnomaliesPage from '@/pages/AnomaliesPage' // <-- Add import
 
-// ─── Protected Route Wrapper ──────────────────────────────────────────────────
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
 
@@ -16,34 +20,27 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     )
   }
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
+  if (!isAuthenticated) return <Navigate to="/login" replace />
 
-  return <>{children}</>
+  return <AppShell>{children}</AppShell>
 }
 
-// ─── App Routes ───────────────────────────────────────────────────────────────
 export default function App() {
   return (
     <Routes>
-      {/* Public routes */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
 
-      {/* Protected routes — dashboard pages go here in later steps */}
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute>
-            <div className="min-h-screen bg-navy-950 flex items-center justify-center text-white">
-              Dashboard coming in Step 7...
-            </div>
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+      <Route path="/funnels" element={<ProtectedRoute><FunnelsPage /></ProtectedRoute>} />
+      <Route path="/retention" element={<ProtectedRoute><RetentionPage /></ProtectedRoute>} />
 
-      {/* Catch-all */}
+      {/* 👇 Update the anomalies route 👇 */}
+      <Route path="/anomalies" element={<ProtectedRoute><AnomaliesPage /></ProtectedRoute>} />
+
+      <Route path="/ai" element={<ProtectedRoute><div className="text-white text-lg">AI Copilot — Step 11</div></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute><div className="text-white text-lg">Settings — Step 12</div></ProtectedRoute>} />
+
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   )
