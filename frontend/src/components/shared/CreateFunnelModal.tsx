@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, X, GripVertical } from 'lucide-react'
 import { funnelsApi } from '@/api'
+import { WorkspaceStorage } from '@/api/client'
 
 const funnelSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -39,15 +40,17 @@ export default function CreateFunnelModal({ open, onClose }: CreateFunnelModalPr
     const { fields, append, remove } = useFieldArray({ control, name: 'steps' })
 
     const { mutate, isPending } = useMutation({
-        mutationFn: (data: FunnelFormData) =>
-            funnelsApi.create({
+        mutationFn: (data: FunnelFormData) => {
+            const workspaceId = WorkspaceStorage.get()!
+            return funnelsApi.create(workspaceId, {
                 name: data.name,
                 steps: data.steps.map((s, i) => ({
                     step: i + 1,
                     event_name: s.event_name,
                     filters: {},
                 })),
-            }),
+            })
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['funnels'] })
             reset()

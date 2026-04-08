@@ -1,48 +1,51 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ShieldCheck, Activity, Search, ShieldAlert, AlertCircle } from 'lucide-react'
+import { AlertTriangle, ShieldCheck, Activity, ShieldAlert, AlertCircle } from 'lucide-react'
 import { anomaliesApi } from '@/api'
+import { WorkspaceStorage } from '@/api/client'
 import { format, parseISO } from 'date-fns'
+import type { AnomalyResponse } from '@/types'
 
-type SeverityFilter = 'all' | 'high' | 'critical' | 'medium' | 'low'
+// Backend accepts: info | warning | critical
+type BackendSeverity = 'info' | 'warning' | 'critical'
+type SeverityFilter = 'all' | BackendSeverity
 
-const SEVERITY_COLORS = {
+const SEVERITY_COLORS: Record<BackendSeverity, string> = {
     critical: 'text-red-400 bg-red-400/10 border-red-400/30',
-    high: 'text-amber-400 bg-amber-400/10 border-amber-400/30',
-    medium: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/30',
-    low: 'text-blue-400 bg-blue-400/10 border-blue-400/30',
+    warning: 'text-amber-400 bg-amber-400/10 border-amber-400/30',
+    info: 'text-blue-400 bg-blue-400/10 border-blue-400/30',
 }
 
-const SEVERITY_ICONS = {
+const SEVERITY_ICONS: Record<BackendSeverity, React.ReactElement> = {
     critical: <ShieldAlert size={18} className="text-red-400" />,
-    high: <AlertTriangle size={18} className="text-amber-400" />,
-    medium: <AlertCircle size={18} className="text-yellow-400" />,
-    low: <Activity size={18} className="text-blue-400" />,
+    warning: <AlertTriangle size={18} className="text-amber-400" />,
+    info: <Activity size={18} className="text-blue-400" />,
 }
 
 export default function AnomaliesPage() {
     const queryClient = useQueryClient()
+    const workspaceId = WorkspaceStorage.get()
     const [filter, setFilter] = useState<SeverityFilter>('all')
     const [showAcknowledged, setShowAcknowledged] = useState(false)
 
-    // Fetch anomalies
     const { data, isLoading } = useQuery({
-        queryKey: ['anomalies', filter, showAcknowledged],
-        queryFn: () => anomaliesApi.list({
-            severity: filter === 'all' ? undefined : filter,
-            acknowledged: showAcknowledged ? undefined : false,
-        }),
+        queryKey: ['anomalies', filter, showAcknowledged, workspaceId],
+        queryFn: () =>
+            anomaliesApi.list(workspaceId!, {
+                severity: filter === 'all' ? undefined : filter,
+                unacknowledged_only: showAcknowledged ? undefined : false,
+            }),
+        enabled: !!workspaceId,
     })
 
-    // Acknowledge mutation
     const { mutate: acknowledge, isPending: isAcknowledging } = useMutation({
-        mutationFn: (id: string) => anomaliesApi.acknowledge(id),
+        mutationFn: (id: string) => anomaliesApi.acknowledge(workspaceId!, id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['anomalies'] })
         },
     })
 
-    const anomalies = data?.anomalies ?? []
+    const anomalies: AnomalyResponse[] = data?.anomalies ?? []
 
     return (
         <div className="space-y-6 max-w-7xl animate-fade-in">
@@ -60,14 +63,15 @@ export default function AnomaliesPage() {
 
                 <div className="flex items-center gap-4 bg-navy-800 border border-white/[0.07] rounded-xl p-2">
                     <div className="flex items-center gap-1 border-r border-white/[0.08] pr-4">
-                        {(['all', 'critical', 'high', 'medium', 'low'] as const).map((s) => (
+                        {(['all', 'critical', 'warning', 'info'] as const).map((s) => (
                             <button
                                 key={s}
                                 onClick={() => setFilter(s)}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${filter === s
+                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
+                                    filter === s
                                         ? 'bg-cyan-500/15 text-accent-cyan'
                                         : 'text-slate-500 hover:text-white'
-                                    }`}
+                                }`}
                             >
                                 {s}
                             </button>
@@ -86,6 +90,13 @@ export default function AnomaliesPage() {
                 </div>
             </div>
 
+            {/* No workspace banner */}
+            {!workspaceId && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-6 text-center text-amber-300 text-sm">
+                    Please select a workspace using the switcher in the top bar.
+                </div>
+            )}
+
             {/* Main Content Area */}
             <div className="bg-navy-800/60 border border-white/[0.06] rounded-2xl shadow-card overflow-hidden">
                 {isLoading ? (
@@ -99,7 +110,7 @@ export default function AnomaliesPage() {
                         </div>
                         <h3 className="text-white font-semibold text-lg mb-2">Systems Normal</h3>
                         <p className="text-slate-400 text-sm max-w-sm">
-                            We haven't detected any unusual drops or spikes matching your current filters. Looking good!
+                            No anomalies detected matching your current filters. Looking good!
                         </p>
                     </div>
                 ) : (
@@ -107,11 +118,11 @@ export default function AnomaliesPage() {
                         {anomalies.map((anomaly) => (
                             <div
                                 key={anomaly.id}
-                                className={`p-6 transition-colors duration-200 ${anomaly.is_acknowledged ? 'bg-navy-900/40 opacity-75' : 'hover:bg-cyan-500/[0.02]'
-                                    }`}
+                                className={`p-6 transition-colors duration-200 ${
+                                    anomaly.is_acknowledged ? 'bg-navy-900/40 opacity-75' : 'hover:bg-cyan-500/[0.02]'
+                                }`}
                             >
                                 <div className="flex items-start justify-between">
-                                    {/* Left Column */}
                                     <div className="flex gap-4">
                                         <div className="mt-1 flex-shrink-0">
                                             {SEVERITY_ICONS[anomaly.severity]}
@@ -130,10 +141,10 @@ export default function AnomaliesPage() {
                                             </div>
 
                                             <p className="text-sm text-slate-400 max-w-2xl leading-relaxed mb-4">
-                                                We detected an abnormal <span className="text-slate-200 font-medium">{anomaly.metric}</span> on{' '}
+                                                Detected abnormal <span className="text-slate-200 font-medium">{anomaly.metric}</span> on{' '}
                                                 {format(parseISO(anomaly.detected_date), 'MMMM d, yyyy')}.
-                                                The expected range was around <span className="text-slate-200 font-medium">{anomaly.expected_value?.toLocaleString() ?? 0}</span>,
-                                                but actual values hit <span className="text-white font-bold">{anomaly.actual_value?.toLocaleString() ?? 0}</span>.
+                                                Expected ~<span className="text-slate-200 font-medium">{Math.round(anomaly.expected_value ?? 0).toLocaleString()}</span>{' '}
+                                                but actual was <span className="text-white font-bold">{anomaly.actual_value?.toLocaleString() ?? 0}</span>.
                                             </p>
 
                                             <div className="flex items-center gap-6">
@@ -155,10 +166,9 @@ export default function AnomaliesPage() {
                                         </div>
                                     </div>
 
-                                    {/* Right Column (Actions) */}
-                                    <div className="flex flex-col items-end gap-3 justify-between h-full">
+                                    <div className="flex flex-col items-end gap-3">
                                         <span className="text-xs text-slate-500">
-                                            Reported {format(parseISO(anomaly.created_at), 'MMM d, HH:mm')}
+                                            {format(parseISO(anomaly.created_at), 'MMM d, HH:mm')}
                                         </span>
                                         {!anomaly.is_acknowledged && (
                                             <button
@@ -167,7 +177,7 @@ export default function AnomaliesPage() {
                                                 className="flex items-center gap-2 px-4 py-2 mt-4 rounded-xl bg-navy-700/50 hover:bg-navy-600 border border-white/[0.08] hover:border-white/20 text-sm text-white font-medium transition-all group"
                                             >
                                                 <ShieldCheck size={16} className="text-slate-400 group-hover:text-green-400 transition-colors" />
-                                                {isAcknowledging ? 'Saving...' : 'Acknowledge'}
+                                                {isAcknowledging ? 'Saving…' : 'Acknowledge'}
                                             </button>
                                         )}
                                     </div>

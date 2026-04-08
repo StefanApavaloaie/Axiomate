@@ -5,10 +5,9 @@ import type {
     FunnelCreate,
     FunnelResponse,
     FunnelResultResponse,
-    RetentionResponse,
+    RetentionApiResponse,
     AnomalyListResponse,
-    AiQueryRequest,
-    AiQueryResponse,
+    AiApiResponse,
     SavedQueryCreate,
     SavedQueryResponse,
     WorkspaceResponse,
@@ -44,56 +43,67 @@ export const workspacesApi = {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 export const dashboardApi = {
-    getOverview: (params: DateRangeParams) =>
+    getOverview: (workspaceId: string, params: DateRangeParams) =>
         apiClient
-            .get<OverviewResponse>('/dashboards/overview', { params })
+            .get<OverviewResponse>(`/dashboards/${workspaceId}/overview`, { params })
             .then((r) => r.data),
-    getEventBreakdown: (params: DateRangeParams) =>
+    getEventBreakdown: (workspaceId: string, params: DateRangeParams) =>
         apiClient
-            .get<EventBreakdownResponse>('/dashboards/events/breakdown', { params })
+            .get<EventBreakdownResponse>(`/dashboards/${workspaceId}/event-breakdown`, { params })
             .then((r) => r.data),
 }
 
 // ─── Funnels ──────────────────────────────────────────────────────────────────
 export const funnelsApi = {
-    list: () =>
-        apiClient.get<FunnelResponse[]>('/funnels/').then((r) => r.data),
-    create: (data: FunnelCreate) =>
-        apiClient.post<FunnelResponse>('/funnels/', data).then((r) => r.data),
-    getResult: (id: string, params: DateRangeParams) =>
+    list: (workspaceId: string) =>
+        apiClient.get<FunnelResponse[]>(`/funnels/${workspaceId}`).then((r) => r.data),
+    create: (workspaceId: string, data: FunnelCreate) =>
+        apiClient.post<FunnelResponse>(`/funnels/${workspaceId}`, data).then((r) => r.data),
+    getResult: (workspaceId: string, funnelId: string, params: DateRangeParams) =>
         apiClient
-            .get<FunnelResultResponse>(`/funnels/${id}/result`, { params })
+            .get<FunnelResultResponse>(`/funnels/${workspaceId}/${funnelId}/results`, { params })
             .then((r) => r.data),
 }
 
 // ─── Retention ────────────────────────────────────────────────────────────────
 export const retentionApi = {
-    get: (params: {
-        date_from: string
-        date_to: string
-        granularity?: string
-        initial_event?: string
-        return_event?: string
-    }) =>
+    get: (
+        workspaceId: string,
+        params: {
+            date_from: string
+            date_to: string
+            initial_event: string
+            return_event: string
+            granularity?: string
+        }
+    ) =>
         apiClient
-            .get<RetentionResponse>('/retention/', { params })
+            .get<RetentionApiResponse>(`/retention/${workspaceId}`, { params })
             .then((r) => r.data),
 }
 
 // ─── Anomalies ────────────────────────────────────────────────────────────────
 export const anomaliesApi = {
-    list: (params?: { severity?: string; acknowledged?: boolean }) =>
+    list: (
+        workspaceId: string,
+        params?: { severity?: string; unacknowledged_only?: boolean }
+    ) =>
         apiClient
-            .get<AnomalyListResponse>('/anomalies/', { params })
+            .get<AnomalyListResponse>(`/anomalies/${workspaceId}`, { params })
             .then((r) => r.data),
-    acknowledge: (id: string) =>
-        apiClient.patch(`/anomalies/${id}/acknowledge`).then((r) => r.data),
+    acknowledge: (workspaceId: string, id: string) =>
+        apiClient.patch(`/anomalies/${workspaceId}/${id}/acknowledge`).then((r) => r.data),
 }
 
 // ─── AI Copilot ───────────────────────────────────────────────────────────────
 export const aiApi = {
-    query: (data: AiQueryRequest) =>
-        apiClient.post<AiQueryResponse>('/ai/query', data).then((r) => r.data),
+    query: (workspaceId: string, question: string) =>
+        apiClient
+            .post<AiApiResponse>('/ai/query', {
+                question,
+                workspace_id: workspaceId,
+            })
+            .then((r) => r.data),
     listSavedQueries: () =>
         apiClient
             .get<SavedQueryResponse[]>('/ai/saved-queries')

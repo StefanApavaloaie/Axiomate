@@ -33,7 +33,6 @@ async def create_workspace(
     new_workspace = Workspace(
         name=data.name,
         slug=data.slug,
-        owner_id=current_user.id
     )
     db.add(new_workspace)
     await db.flush() # Secure a new UUID without closing the transaction

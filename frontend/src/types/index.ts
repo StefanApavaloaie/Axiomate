@@ -108,22 +108,20 @@ export interface FunnelResultResponse {
 }
 
 // ─── Retention ────────────────────────────────────────────────────────────────
-export interface RetentionPeriod {
-    period: number
-    users: number
-    retention_rate: number // 0.0 to 1.0
-}
-
+// Matches backend CohortRow: periods is a dict of {"0": count, "1": count, ...}
 export interface RetentionCohortRow {
     cohort_date: string
-    initial_users: number
-    periods: RetentionPeriod[]
+    cohort_size: number
+    periods: Record<string, number>
 }
 
-export interface RetentionResponse {
-    granularity: string
+// Matches backend RetentionResponse
+export interface RetentionApiResponse {
     initial_event: string
     return_event: string
+    granularity: string
+    date_from: string
+    date_to: string
     cohorts: RetentionCohortRow[]
     computed_at: string
 }
@@ -137,7 +135,7 @@ export interface AnomalyResponse {
     expected_value: number | null
     actual_value: number | null
     z_score: number | null
-    severity: 'low' | 'medium' | 'high' | 'critical'
+    severity: 'info' | 'warning' | 'critical'  // matches backend enum
     is_acknowledged: boolean
     created_at: string
 }
@@ -161,10 +159,14 @@ export interface ReportResponse {
 }
 
 // ─── AI / Ollama ──────────────────────────────────────────────────────────────
-export interface AiQueryRequest {
+// AiApiResponse matches the actual backend response shape
+export interface AiApiResponse {
     question: string
+    answer: string          // backend field is 'answer', not 'llm_response'
+    context_used: Record<string, unknown>
 }
 
+// Keep old shape for saved queries (if used later)
 export interface AiQueryResponse {
     id: string
     question: string

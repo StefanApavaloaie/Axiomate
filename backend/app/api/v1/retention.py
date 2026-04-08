@@ -56,7 +56,7 @@ async def get_retention(
 ):
     """
     Computes a cohort retention matrix.
-    Groups users by the week/day/month they first fired `initial_event`,
+    Groups users by the day/week/month they first fired `initial_event`,
     then tracks how many came back and fired `return_event` in subsequent periods.
     """
     await _verify_member(workspace_id, current_user.id, db)
@@ -64,78 +64,112 @@ async def get_retention(
     if not date_to:
         date_to = date.today()
     if not date_from:
-        date_from = date_to - timedelta(days=83)  # ~12 weeks
+        date_from = date_to - timedelta(days=83)
 
-    # Map granularity to PostgreSQL date_trunc format
-    trunc = {"day": "day", "week": "week", "month": "month"}[granularity]
+    # Convert to timezone-aware datetimes for filtering
+    dt_from = datetime(date_from.year, date_from.month, date_from.day, tzinfo=timezone.utc)
+    dt_to = datetime(date_to.year, date_to.month, date_to.day, 23, 59, 59, tzinfo=timezone.utc)
 
-    # Step 1: Get all users and their cohort period (first occurrence of initial_event)
-    cohort_stmt = (
-        select(
-            Event.user_id,
-            func.date_trunc(trunc, func.min(Event.occurred_at)).label("cohort_period"),
-        )
+    # ── Step 1: Get each user's cohort date (first initial_event in range) ──────
+    cohort_result = await db.execute(
+        select(Event.user_id, func.min(Event.occurred_at).label("first_event"))
         .where(
             Event.workspace_id == workspace_id,
             Event.event_name == initial_event,
-            func.date(Event.occurred_at) >= date_from,
-            func.date(Event.occurred_at) <= date_to,
             Event.user_id.is_not(None),
+            Event.occurred_at >= dt_from,
+            Event.occurred_at <= dt_to,
         )
         .group_by(Event.user_id)
-        .subquery()
     )
+    cohort_rows = cohort_result.all()
 
-    # Step 2: Join return events back to get activity period
-    activity_stmt = (
-        select(
-            cohort_stmt.c.cohort_period,
-            func.date_trunc(trunc, Event.occurred_at).label("activity_period"),
-            func.count(func.distinct(Event.user_id)).label("user_count"),
+    if not cohort_rows:
+        return RetentionResponse(
+            initial_event=initial_event,
+            return_event=return_event,
+            granularity=granularity,
+            date_from=date_from,
+            date_to=date_to,
+            cohorts=[],
+            computed_at=datetime.now(timezone.utc),
         )
-        .join(Event, Event.user_id == cohort_stmt.c.user_id)
+
+    # Build user_id → cohort_date dict, truncated to the chosen granularity
+    def truncate_date(d: date, gran: str) -> date:
+        if gran == "day":
+            return d
+        elif gran == "week":
+            return d - timedelta(days=d.weekday())  # Monday of that week
+        else:  # month
+            return d.replace(day=1)
+
+    user_cohort: dict[str, date] = {}
+    for row in cohort_rows:
+        raw = row.first_event
+        as_date = raw.date() if hasattr(raw, "date") else raw
+        user_cohort[row.user_id] = truncate_date(as_date, granularity)
+
+    # ── Step 2: Get all return events for the cohort users ─────────────────────
+    user_ids = list(user_cohort.keys())
+    activity_result = await db.execute(
+        select(Event.user_id, Event.occurred_at)
         .where(
             Event.workspace_id == workspace_id,
             Event.event_name == return_event,
+            Event.user_id.in_(user_ids),
         )
-        .group_by(cohort_stmt.c.cohort_period, func.date_trunc(trunc, Event.occurred_at))
-        .order_by(cohort_stmt.c.cohort_period)
     )
-    rows = (await db.execute(activity_stmt)).all()
+    activity_rows = activity_result.all()
 
-    # Step 3: Get cohort sizes (users in period-0 for each cohort)
-    cohort_size_stmt = (
-        select(
-            cohort_stmt.c.cohort_period,
-            func.count(cohort_stmt.c.user_id).label("size"),
-        )
-        .group_by(cohort_stmt.c.cohort_period)
-    )
-    sizes = {row.cohort_period: row.size for row in (await db.execute(cohort_size_stmt)).all()}
+    # ── Step 3: Build cohort matrix in Python ──────────────────────────────────
+    # cohort_date → period_idx → set of unique users
+    cohort_user_counts: dict[date, dict[int, set]] = {}
+    cohort_sizes: dict[date, set] = {}  # track unique users per cohort
 
-    # Step 4: Build the cohort matrix
-    cohort_map: dict = {}
-    for row in rows:
-        cp = row.cohort_period.date() if hasattr(row.cohort_period, "date") else row.cohort_period
-        ap = row.activity_period.date() if hasattr(row.activity_period, "date") else row.activity_period
-        if cp not in cohort_map:
-            cohort_map[cp] = {}
-        # Period index: 0 = same period as cohort, 1 = next period, etc.
+    # Count cohort sizes (unique users per cohort period)
+    for uid, cohort_date in user_cohort.items():
+        if cohort_date not in cohort_sizes:
+            cohort_sizes[cohort_date] = set()
+        cohort_sizes[cohort_date].add(uid)
+
+    # Map return events to cohort periods
+    for row in activity_rows:
+        uid = row.user_id
+        if uid not in user_cohort:
+            continue
+
+        cohort_date = user_cohort[uid]
+        raw = row.occurred_at
+        activity_date = raw.date() if hasattr(raw, "date") else raw
+        activity_period = truncate_date(activity_date, granularity)
+
         if granularity == "day":
-            period_idx = (ap - cp).days
+            period_idx = (activity_period - cohort_date).days
         elif granularity == "week":
-            period_idx = ((ap - cp).days) // 7
+            period_idx = (activity_period - cohort_date).days // 7
         else:
-            period_idx = (ap.year - cp.year) * 12 + (ap.month - cp.month)
-        cohort_map[cp][str(period_idx)] = row.user_count
+            period_idx = (activity_period.year - cohort_date.year) * 12 + (
+                activity_period.month - cohort_date.month
+            )
 
+        if period_idx < 0:
+            continue  # skip events before cohort date (data anomalies)
+
+        if cohort_date not in cohort_user_counts:
+            cohort_user_counts[cohort_date] = {}
+        if period_idx not in cohort_user_counts[cohort_date]:
+            cohort_user_counts[cohort_date][period_idx] = set()
+        cohort_user_counts[cohort_date][period_idx].add(uid)
+
+    # ── Step 4: Assemble the response ──────────────────────────────────────────
     cohorts = [
         CohortRow(
             cohort_date=cp,
-            cohort_size=sizes.get(datetime.combine(cp, datetime.min.time()), 0),
-            periods=cohort_map.get(cp, {}),
+            cohort_size=len(cohort_sizes.get(cp, set())),
+            periods={str(k): len(v) for k, v in sorted(periods.items())},
         )
-        for cp in sorted(cohort_map.keys())
+        for cp, periods in sorted(cohort_user_counts.items())
     ]
 
     return RetentionResponse(

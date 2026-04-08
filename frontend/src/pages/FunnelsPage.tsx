@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
 import { Plus, Filter, ChevronRight, Calendar } from 'lucide-react'
 import { funnelsApi } from '@/api'
+import { WorkspaceStorage } from '@/api/client'
 import FunnelChart from '@/components/charts/FunnelChart'
 import CreateFunnelModal from '@/components/shared/CreateFunnelModal'
 import type { FunnelResponse } from '@/types'
@@ -40,19 +41,21 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
 }
 
 export default function FunnelsPage() {
+    const workspaceId = WorkspaceStorage.get()
     const [showModal, setShowModal] = useState(false)
     const [selectedFunnel, setSelectedFunnel] = useState<FunnelResponse | null>(null)
     const [range, setRange] = useState<DateRange>('30d')
 
     const { data: funnels = [], isLoading: funnelsLoading } = useQuery({
-        queryKey: ['funnels'],
-        queryFn: funnelsApi.list,
+        queryKey: ['funnels', workspaceId],
+        queryFn: () => funnelsApi.list(workspaceId!),
+        enabled: !!workspaceId,
     })
 
     const { data: result, isLoading: resultLoading } = useQuery({
-        queryKey: ['funnel-result', selectedFunnel?.id, range],
-        queryFn: () => funnelsApi.getResult(selectedFunnel!.id, getRange(range)),
-        enabled: !!selectedFunnel,
+        queryKey: ['funnel-result', selectedFunnel?.id, range, workspaceId],
+        queryFn: () => funnelsApi.getResult(workspaceId!, selectedFunnel!.id, getRange(range)),
+        enabled: !!selectedFunnel && !!workspaceId,
     })
 
     const DATE_RANGES: { label: string; value: DateRange }[] = [
@@ -72,13 +75,20 @@ export default function FunnelsPage() {
                 <button
                     id="create-funnel-btn"
                     onClick={() => setShowModal(true)}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan rounded-xl text-sm font-medium hover:bg-accent-cyan/20 transition-all"
+                    disabled={!workspaceId}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan rounded-xl text-sm font-medium hover:bg-accent-cyan/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                     <Plus size={15} />
                     New Funnel
                 </button>
             </div>
 
+            {/* No workspace warning */}
+            {!workspaceId && (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 text-center text-amber-300 text-sm">
+                    Please select or create a workspace using the switcher in the top bar before creating funnels.
+                </div>
+            )}
             {funnelsLoading ? (
                 <div className="flex items-center justify-center py-24">
                     <div className="w-8 h-8 rounded-full border-2 border-transparent border-t-accent-cyan animate-spin" />

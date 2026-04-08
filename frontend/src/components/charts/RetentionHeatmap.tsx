@@ -40,7 +40,15 @@ export default function RetentionHeatmap({ cohorts, isLoading }: RetentionHeatma
     )
   }
 
-  const maxDays = Math.max(...cohorts.map((c) => c.periods.length))
+  // Convert each cohort's periods dict into a sorted array of percentages
+  const getCohortPercentages = (cohort: RetentionCohortRow): number[] => {
+    const size = cohort.cohort_size || 1
+    return Object.entries(cohort.periods)
+      .sort(([a], [b]) => parseInt(a) - parseInt(b))
+      .map(([, count]) => (count / size) * 100)
+  }
+
+  const maxDays = Math.max(...cohorts.map((c) => Object.keys(c.periods).length))
 
   return (
     <div className="overflow-x-auto pb-4 custom-scrollbar">
@@ -64,22 +72,22 @@ export default function RetentionHeatmap({ cohorts, isLoading }: RetentionHeatma
 
         {/* Data Rows */}
         <div className="space-y-1">
-          {cohorts.map((cohort, index) => (
-            <div key={index} className="flex gap-1 group">
-              {/* Date */}
-              <div className="w-28 flex-shrink-0 text-xs font-medium text-slate-300 px-2 py-2 flex items-center border border-white/[0.04] rounded bg-navy-800/50 group-hover:bg-navy-800 transition-colors">
-                {cohort.cohort_date}
-              </div>
-              {/* Total Users */}
-              <div className="w-16 flex-shrink-0 text-xs font-semibold text-white px-2 py-2 flex items-center justify-center border border-white/[0.04] rounded bg-navy-800/50 group-hover:bg-navy-800 transition-colors tabular-nums">
-                {cohort.initial_users.toLocaleString()}
-              </div>
+          {cohorts.map((cohort, index) => {
+            const percentages = getCohortPercentages(cohort)
+            return (
+              <div key={index} className="flex gap-1 group">
+                {/* Date */}
+                <div className="w-28 flex-shrink-0 text-xs font-medium text-slate-300 px-2 py-2 flex items-center border border-white/[0.04] rounded bg-navy-800/50 group-hover:bg-navy-800 transition-colors">
+                  {String(cohort.cohort_date)}
+                </div>
+                {/* Total Users */}
+                <div className="w-16 flex-shrink-0 text-xs font-semibold text-white px-2 py-2 flex items-center justify-center border border-white/[0.04] rounded bg-navy-800/50 group-hover:bg-navy-800 transition-colors tabular-nums">
+                  {cohort.cohort_size.toLocaleString()}
+                </div>
 
-              {/* Heatmap Cells */}
-              <div className="flex-1 flex gap-1">
-                {cohort.periods.map((periodObj, dayIndex) => {
-                  const percent = periodObj.retention_rate * 100
-                  return (
+                {/* Heatmap Cells */}
+                <div className="flex-1 flex gap-1">
+                  {percentages.map((percent, dayIndex) => (
                     <div
                       key={dayIndex}
                       className={`
@@ -91,36 +99,25 @@ export default function RetentionHeatmap({ cohorts, isLoading }: RetentionHeatma
                     >
                       {percent > 0 ? `${Math.round(percent)}%` : '-'}
                     </div>
-                  )
-                })}
-                
-                {/* Empty padding for newer cohorts that haven't reached maxDays yet */}
-                {[...Array(maxDays - cohort.periods.length)].map((_, i) => (
-                  <div
-                    key={`empty-${i}`}
-                    className="w-12 flex-shrink-0 rounded bg-navy-900/50 border border-transparent"
-                  />
-                ))}
+                  ))}
+                  {/* Empty padding for newer cohorts */}
+                  {[...Array(maxDays - percentages.length)].map((_, i) => (
+                    <div
+                      key={`empty-${i}`}
+                      className="w-12 flex-shrink-0 rounded bg-navy-900/50 border border-transparent"
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          height: 6px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: rgba(255,255,255,0.02);
-          border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: rgba(255,255,255,0.1);
-          border-radius: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: rgba(34, 211, 238, 0.5);
-        }
+        .custom-scrollbar::-webkit-scrollbar { height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(34, 211, 238, 0.5); }
       `}</style>
     </div>
   )

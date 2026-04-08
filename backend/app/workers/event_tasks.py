@@ -29,12 +29,20 @@ async def _process_events_batch(events_payload: List[Dict]) -> str:
     # Actually SQLAlchemy can accept correctly formatted strings for UUID columns.
     
     async with AsyncSessionLocal() as session:
+        # Add fields that have Python ORM defaults (not server_default).
+        # Core insert() doesn't trigger ORM-level defaults, so we set them explicitly.
+        prepared = []
+        for e in events_payload:
+            row = dict(e)
+            row.setdefault("id", uuid.uuid4())         # UUIDMixin default
+            row.setdefault("context", {})              # Event.context default
+            row.setdefault("is_processed", False)      # Event.is_processed default
+            prepared.append(row)
+
         # High-throughput PostgreSQL bulk INSERT via SQLAlchemy 2.0 Core
-        await session.execute(
-            insert(Event).values(events_payload)
-        )
+        await session.execute(insert(Event).values(prepared))
         await session.commit()
-        
+
     return f"Successfully inserted {len(events_payload)} events"
 
 
