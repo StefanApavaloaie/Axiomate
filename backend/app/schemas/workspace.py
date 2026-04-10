@@ -28,6 +28,19 @@ class WorkspaceMemberResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class WorkspaceMemberWithUserResponse(BaseModel):
+    """Member row with joined user info for the Settings > Team tab."""
+    id: uuid.UUID
+    user_id: uuid.UUID
+    role: str
+    created_at: datetime
+    user_name: str | None
+    user_email: str
+    user_avatar_url: str | None
+
+    model_config = {"from_attributes": True}
+
+
 class InviteMemberRequest(BaseModel):
     email: str
     role: str = Field(default="member", pattern=r"^(owner|admin|member|viewer)$")

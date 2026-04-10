@@ -41,6 +41,16 @@ export interface WorkspaceMemberResponse {
     created_at: string
 }
 
+export interface WorkspaceMemberWithUser {
+    id: string
+    user_id: string
+    role: 'owner' | 'admin' | 'member' | 'viewer'
+    created_at: string
+    user_name: string | null
+    user_email: string
+    user_avatar_url: string | null
+}
+
 export interface InviteMemberRequest {
     email: string
     role: 'owner' | 'admin' | 'member' | 'viewer'
@@ -194,17 +204,17 @@ export interface SavedQueryResponse {
 export interface ApiKeyResponse {
     id: string
     name: string
-    prefix: string
+    key_prefix: string      // backend field name
     is_active: boolean
+    last_used_at: string | null
     created_at: string
 }
 
 export interface ApiKeyCreatedResponse {
     id: string
     name: string
-    prefix: string
+    key_prefix: string      // backend field name
     raw_key: string  // Only returned once on creation
-    is_active: boolean
     created_at: string
 }
 

@@ -8,7 +8,8 @@ import DashboardPage from '@/pages/DashboardPage'
 import FunnelsPage from '@/pages/FunnelsPage'
 import RetentionPage from '@/pages/RetentionPage'
 import AnomaliesPage from '@/pages/AnomaliesPage'
-import AiCopilotPage from '@/pages/AiCopilotPage' // <-- Add this import
+import AiCopilotPage from '@/pages/AiCopilotPage'
+import SettingsPage from '@/pages/SettingsPage'
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -40,7 +41,7 @@ export default function App() {
       {/* 👇 Update the AI route 👇 */}
       <Route path="/ai" element={<ProtectedRoute><AiCopilotPage /></ProtectedRoute>} />
 
-      <Route path="/settings" element={<ProtectedRoute><div className="text-white text-lg">Settings — Step 12</div></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

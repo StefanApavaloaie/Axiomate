@@ -11,7 +11,7 @@ celery_app = Celery(
     include=[
         "app.workers.event_tasks",
         # "app.workers.aggregation_tasks",
-        # "app.workers.anomaly_tasks",
+        "app.workers.anomaly_tasks",
         # "app.workers.report_tasks",
         # "app.workers.ai_tasks",
     ],

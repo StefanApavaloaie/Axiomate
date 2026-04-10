@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-axiomate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-axiomate}
+      POSTGRES_DB: ${POSTGRES_DB:-axiomate}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: 
+      context: ./backend
+    restart: always
+    environment:
+      # Use internal Docker hostnames
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
+      - SYNC_DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      # Security & App Settings
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-change-this-huge-secure-secret-in-prod}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - DEFAULT_ALLOWED_ORIGIN=${ALLOWED_DOMAIN:-http://localhost}
+      # Ollama Host (Points to the host machine running Ollama)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery_worker:
+    build: 
+      context: ./backend
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
+      - SYNC_DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-change-this-huge-secure-secret-in-prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: always
+    ports:
+      - "80:80"
+    # Frontend depends on backend for API calls (from users' browsers, but good to wait anyway)
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:

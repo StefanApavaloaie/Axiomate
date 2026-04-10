@@ -12,6 +12,7 @@ import type {
     SavedQueryResponse,
     WorkspaceResponse,
     WorkspaceCreate,
+    WorkspaceMemberWithUser,
     ApiKeyResponse,
     ApiKeyCreatedResponse,
     ApiKeyCreate,
@@ -39,6 +40,8 @@ export const workspacesApi = {
         apiClient.post<WorkspaceResponse>('/workspaces/', data).then((r) => r.data),
     getById: (id: string) =>
         apiClient.get<WorkspaceResponse>(`/workspaces/${id}`).then((r) => r.data),
+    getMembers: (workspaceId: string) =>
+        apiClient.get<WorkspaceMemberWithUser[]>(`/workspaces/${workspaceId}/members`).then((r) => r.data),
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
@@ -116,12 +119,10 @@ export const aiApi = {
 
 // ─── API Keys ─────────────────────────────────────────────────────────────────
 export const apiKeysApi = {
-    list: () =>
-        apiClient.get<ApiKeyResponse[]>('/api-keys/').then((r) => r.data),
-    create: (data: ApiKeyCreate) =>
-        apiClient
-            .post<ApiKeyCreatedResponse>('/api-keys/', data)
-            .then((r) => r.data),
-    revoke: (id: string) =>
-        apiClient.delete(`/api-keys/${id}`).then((r) => r.data),
+    list: (workspaceId: string) =>
+        apiClient.get<ApiKeyResponse[]>(`/api-keys/${workspaceId}`).then((r) => r.data),
+    create: (workspaceId: string, data: ApiKeyCreate) =>
+        apiClient.post<ApiKeyCreatedResponse>(`/api-keys/${workspaceId}`, data).then((r) => r.data),
+    revoke: (workspaceId: string, keyId: string) =>
+        apiClient.delete(`/api-keys/${workspaceId}/${keyId}`).then((r) => r.data),
 }
