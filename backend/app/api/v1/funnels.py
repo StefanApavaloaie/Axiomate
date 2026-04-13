@@ -10,7 +10,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_workspace_member, require_role
 from app.models.event import Event
 from app.models.funnel import Funnel
 from app.models.user import User
@@ -26,15 +26,7 @@ from app.schemas.funnel import (
 router = APIRouter(prefix="/funnels")
 
 
-async def _verify_member(workspace_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession):
-    result = await db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == user_id,
-        )
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+# Helper _verify_member is removed in favor of standard dependencies
 
 
 @router.post("/{workspace_id}", response_model=FunnelResponse, status_code=status.HTTP_201_CREATED)
@@ -43,9 +35,9 @@ async def create_funnel(
     data: FunnelCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(require_role("owner", "admin", "member")),
 ):
     """Saves a named funnel definition (list of ordered steps) for later analysis."""
-    await _verify_member(workspace_id, current_user.id, db)
 
     # Store steps as plain dicts in the JSONB column
     steps_json = [s.model_dump() for s in data.steps]
@@ -73,9 +65,9 @@ async def list_funnels(
     workspace_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(get_workspace_member),
 ):
     """Returns all saved funnel definitions for a workspace."""
-    await _verify_member(workspace_id, current_user.id, db)
 
     result = await db.execute(
         select(Funnel)
@@ -103,13 +95,13 @@ async def compute_funnel_results(
     date_to: date = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(get_workspace_member),
 ):
     """
     Computes live drop-off rates for each step of a funnel.
     Uses a sequential query: counts distinct users who fired step N 
     AND previously fired step N-1 within the date range.
     """
-    await _verify_member(workspace_id, current_user.id, db)
 
     # Fetch funnel definition
     result = await db.execute(

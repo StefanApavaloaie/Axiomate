@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import generate_api_key
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_workspace_member, require_role
 from app.models.api_key import ApiKey
 from app.models.user import User
 from app.models.workspace import WorkspaceMember
@@ -16,25 +16,7 @@ from app.schemas.api_key import ApiKeyCreate, ApiKeyCreatedResponse, ApiKeyRespo
 router = APIRouter(prefix="/api-keys")
 
 
-async def _check_workspace_access(
-    workspace_id: uuid.UUID,
-    user_id: uuid.UUID,
-    db: AsyncSession,
-    required_role: List[str] = ["owner", "admin"],
-):
-    """Helper: verifies the user has access to the workspace."""
-    result = await db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == user_id,
-            WorkspaceMember.role.in_(required_role),
-        )
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to manage API keys for this workspace.",
-        )
+# Standardized checks used below
 
 
 @router.post("/{workspace_id}", response_model=ApiKeyCreatedResponse, status_code=status.HTTP_201_CREATED)
@@ -43,9 +25,9 @@ async def create_api_key(
     data: ApiKeyCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(require_role("owner", "admin")),
 ):
     """Generates a new API key for a workspace. The raw key is shown ONCE and never stored."""
-    await _check_workspace_access(workspace_id, current_user.id, db)
 
     raw_key, key_hash, key_prefix = generate_api_key()
 
@@ -76,9 +58,9 @@ async def list_api_keys(
     workspace_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(require_role("owner", "admin", "member")),
 ):
-    """Lists all active API keys for a workspace (raw key is never returned)."""
-    await _check_workspace_access(workspace_id, current_user.id, db, required_role=["owner", "admin", "member"])
+    """Lists all active API keys for a workspace (raw key is never returned). Admin/Owner/Member."""
 
     result = await db.execute(
         select(ApiKey).where(
@@ -95,9 +77,9 @@ async def revoke_api_key(
     key_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(require_role("owner", "admin")),
 ):
-    """Revokes (soft-deletes) an API key by setting is_active=False."""
-    await _check_workspace_access(workspace_id, current_user.id, db)
+    """Revokes (soft-deletes) an API key by setting is_active=False. Admin/Owner only."""
 
     result = await db.execute(
         select(ApiKey).where(

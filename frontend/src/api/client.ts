@@ -67,13 +67,6 @@ apiClient.interceptors.response.use(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const originalRequest = error.config as any
 
-        // 403 Forbidden → clear session, redirect to login
-        if (error.response?.status === 403) {
-            TokenStorage.clear()
-            window.location.href = '/login'
-            return Promise.reject(error)
-        }
-
         // 401 Unauthorized → attempt token refresh
         if (error.response?.status === 401 && !originalRequest?._retry) {
             const refreshToken = TokenStorage.getRefresh()

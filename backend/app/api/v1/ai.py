@@ -8,10 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_workspace_member
 from app.models.event import Event
 from app.models.user import User
-from app.models.workspace import WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceMember
 
 router = APIRouter(prefix="/ai")
 
@@ -27,15 +27,7 @@ class AiQueryResponse(BaseModel):
     context_used: dict
 
 
-async def _verify_member(workspace_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession):
-    result = await db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == user_id,
-        )
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+# Standardized member verification used below
 
 
 @router.post("/query", response_model=AiQueryResponse)
@@ -48,7 +40,18 @@ async def query_ai(
     Lets a user ask natural-language questions about their analytics data.
     Automatically fetches live context from the database and sends it to Ollama.
     """
-    await _verify_member(request.workspace_id, current_user.id, db)
+    # Manual check since workspace_id is in the body
+    result = await db.execute(
+        select(WorkspaceMember)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .where(
+            WorkspaceMember.workspace_id == request.workspace_id,
+            WorkspaceMember.user_id == current_user.id,
+            Workspace.deleted_at.is_(None)
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="You do not have access to this workspace.")
 
     # Build a compact analytics snapshot to inject as context
     total_events = (

@@ -45,8 +45,8 @@ async def google_callback(code: str = Query(...), db: AsyncSession = Depends(get
     if not email or not google_sub:
         raise UnauthorizedException("Incomplete user profile returned from Google")
 
-    # 2. Find existing user or create a new one
-    result = await db.execute(select(User).where(User.google_sub == google_sub))
+    # 2. Find existing user by email (allows merging with shadow invited users)
+    result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -60,9 +60,13 @@ async def google_callback(code: str = Query(...), db: AsyncSession = Depends(get
         # Flush to get the UUID generated without closing the transaction
         await db.flush()
     else:
-        # Update profile info if it changed on Google
-        user.name = name
-        user.avatar_url = avatar_url
+        # Permanently attach their real credentials if they were a shadow user
+        # or simply update their profile info if they changed it on Google
+        user.google_sub = google_sub
+        if name:
+            user.name = name
+        if avatar_url:
+            user.avatar_url = avatar_url
 
     # 3. Generate our own JWTs
     access_token = create_access_token(str(user.id))

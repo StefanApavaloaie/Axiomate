@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_workspace_member, require_role
 from app.models.report import Report
 from app.models.user import User
 from app.models.workspace import WorkspaceMember
@@ -15,15 +15,7 @@ from app.schemas.report import ReportCreate, ReportResponse
 router = APIRouter(prefix="/reports")
 
 
-async def _verify_member(workspace_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession):
-    result = await db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == user_id,
-        )
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+# Helper _verify_member is removed in favor of standard dependencies
 
 
 @router.post("/{workspace_id}", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
@@ -32,9 +24,9 @@ async def create_report(
     data: ReportCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(require_role("owner", "admin", "member")),
 ):
     """Creates a new saved report definition (optionally with a cron schedule)."""
-    await _verify_member(workspace_id, current_user.id, db)
 
     report = Report(
         workspace_id=workspace_id,
@@ -56,9 +48,9 @@ async def list_reports(
     workspace_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(get_workspace_member),
 ):
     """Lists all saved reports for a workspace."""
-    await _verify_member(workspace_id, current_user.id, db)
 
     result = await db.execute(
         select(Report)
@@ -74,9 +66,9 @@ async def delete_report(
     report_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(require_role("owner", "admin", "member")),
 ):
     """Deletes a saved report."""
-    await _verify_member(workspace_id, current_user.id, db)
 
     result = await db.execute(
         select(Report).where(Report.id == report_id, Report.workspace_id == workspace_id)

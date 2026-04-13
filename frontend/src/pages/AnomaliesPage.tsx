@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ShieldCheck, Activity, ShieldAlert, AlertCircle } from 'lucide-react'
 import { anomaliesApi } from '@/api'
 import { WorkspaceStorage } from '@/api/client'
+import { useToast } from '@/context/ToastContext'
 import { format, parseISO } from 'date-fns'
 import type { AnomalyResponse } from '@/types'
 
@@ -24,6 +25,7 @@ const SEVERITY_ICONS: Record<BackendSeverity, React.ReactElement> = {
 
 export default function AnomaliesPage() {
     const queryClient = useQueryClient()
+    const { showToast } = useToast()
     const workspaceId = WorkspaceStorage.get()
     const [filter, setFilter] = useState<SeverityFilter>('all')
     const [showAcknowledged, setShowAcknowledged] = useState(false)
@@ -42,7 +44,15 @@ export default function AnomaliesPage() {
         mutationFn: (id: string) => anomaliesApi.acknowledge(workspaceId!, id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['anomalies'] })
+            showToast('Anomaly acknowledged.', 'success')
         },
+        onError: (err: any) => {
+            if (err.response?.status === 403) {
+                showToast('Action Restricted: You do not have permission to acknowledge anomalies.', 'error')
+            } else {
+                showToast(err.response?.data?.detail || 'Failed to acknowledge anomaly.', 'error')
+            }
+        }
     })
 
     const anomalies: AnomalyResponse[] = data?.anomalies ?? []

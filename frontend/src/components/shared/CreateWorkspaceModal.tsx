@@ -52,7 +52,7 @@ export default function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceM
     if (!open) return null
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] p-4 overflow-y-auto">
             {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/60 backdrop-blur-sm"

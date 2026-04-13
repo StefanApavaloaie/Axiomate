@@ -11,7 +11,7 @@ from app.core.security import decode_token, hash_api_key
 from app.db.session import get_db
 from app.models.api_key import ApiKey
 from app.models.user import User
-from app.models.workspace import WorkspaceMember
+from app.models.workspace import Workspace, WorkspaceMember
 
 # ── JWT Bearer scheme ─────────────────────────────────────────────────────────
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -55,9 +55,12 @@ async def get_workspace_member(
     Returns the WorkspaceMember row or raises 403.
     """
     result = await db.execute(
-        select(WorkspaceMember).where(
+        select(WorkspaceMember)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .where(
             WorkspaceMember.workspace_id == workspace_id,
             WorkspaceMember.user_id == current_user.id,
+            Workspace.deleted_at.is_(None)
         )
     )
     member = result.scalar_one_or_none()
@@ -97,9 +100,12 @@ async def get_api_key_workspace_id(
     key_hash = hash_api_key(x_api_key)
 
     result = await db.execute(
-        select(ApiKey).where(
+        select(ApiKey)
+        .join(Workspace, Workspace.id == ApiKey.workspace_id)
+        .where(
             ApiKey.key_hash == key_hash,
             ApiKey.is_active == True,  # noqa: E712
+            Workspace.deleted_at.is_(None)
         )
     )
     api_key = result.scalar_one_or_none()

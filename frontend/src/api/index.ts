@@ -13,6 +13,7 @@ import type {
     WorkspaceResponse,
     WorkspaceCreate,
     WorkspaceMemberWithUser,
+    InviteMemberRequest,
     ApiKeyResponse,
     ApiKeyCreatedResponse,
     ApiKeyCreate,
@@ -40,8 +41,18 @@ export const workspacesApi = {
         apiClient.post<WorkspaceResponse>('/workspaces/', data).then((r) => r.data),
     getById: (id: string) =>
         apiClient.get<WorkspaceResponse>(`/workspaces/${id}`).then((r) => r.data),
+    update: (id: string, data: WorkspaceCreate) =>
+        apiClient.patch<WorkspaceResponse>(`/workspaces/${id}`, data).then((r) => r.data),
+    delete: (id: string) =>
+        apiClient.delete(`/workspaces/${id}`).then((r) => r.data),
     getMembers: (workspaceId: string) =>
         apiClient.get<WorkspaceMemberWithUser[]>(`/workspaces/${workspaceId}/members`).then((r) => r.data),
+    inviteMember: (workspaceId: string, data: InviteMemberRequest) =>
+        apiClient.post(`/workspaces/${workspaceId}/members`, data).then((r) => r.data),
+    removeMember: (workspaceId: string, userId: string) =>
+        apiClient.delete(`/workspaces/${workspaceId}/members/${userId}`).then((r) => r.data),
+    changeMemberRole: (workspaceId: string, userId: string, role: string) =>
+        apiClient.patch(`/workspaces/${workspaceId}/members/${userId}`, { role }).then((r) => r.data),
 }
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────

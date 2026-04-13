@@ -5,7 +5,8 @@ import { z } from 'zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, X, GripVertical } from 'lucide-react'
 import { funnelsApi } from '@/api'
-import { WorkspaceStorage } from '@/api/client'
+import { WorkspaceStorage, apiClient } from '@/api/client'
+import { useToast } from '@/context/ToastContext'
 
 const funnelSchema = z.object({
     name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -27,6 +28,7 @@ interface CreateFunnelModalProps {
 
 export default function CreateFunnelModal({ open, onClose }: CreateFunnelModalProps) {
     const queryClient = useQueryClient()
+    const { showToast } = useToast()
 
     const { register, control, handleSubmit, reset, formState: { errors } } =
         useForm<FunnelFormData>({
@@ -55,7 +57,15 @@ export default function CreateFunnelModal({ open, onClose }: CreateFunnelModalPr
             queryClient.invalidateQueries({ queryKey: ['funnels'] })
             reset()
             onClose()
+            showToast('Funnel created successfully!', 'success')
         },
+        onError: (err: any) => {
+            if (err.response?.status === 403) {
+                showToast('Action Restricted: You do not have permission to create funnels in this workspace.', 'error')
+            } else {
+                showToast(err.response?.data?.detail || 'Failed to create funnel.', 'error')
+            }
+        }
     })
 
     if (!open) return null

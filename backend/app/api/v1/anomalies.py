@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_workspace_member, require_role
 from app.models.anomaly import Anomaly
 from app.models.user import User
 from app.models.workspace import WorkspaceMember
@@ -15,15 +15,7 @@ from app.schemas.anomaly import AnomalyListResponse, AnomalyResponse
 router = APIRouter(prefix="/anomalies")
 
 
-async def _verify_member(workspace_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession):
-    result = await db.execute(
-        select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == user_id,
-        )
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+# Standard verification used below
 
 
 @router.get("/{workspace_id}", response_model=AnomalyListResponse)
@@ -34,12 +26,12 @@ async def list_anomalies(
     limit: int = Query(default=50, le=200),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(get_workspace_member),
 ):
     """
     Lists anomalies detected by background Celery jobs for a workspace.
     Supports filtering by severity and acknowledgement status.
     """
-    await _verify_member(workspace_id, current_user.id, db)
 
     stmt = select(Anomaly).where(Anomaly.workspace_id == workspace_id)
 
@@ -63,9 +55,9 @@ async def acknowledge_anomaly(
     anomaly_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    member: WorkspaceMember = Depends(require_role("owner", "admin", "member")),
 ):
-    """Marks an anomaly as acknowledged so it stops appearing in alerts."""
-    await _verify_member(workspace_id, current_user.id, db)
+    """Marks an anomaly as acknowledged. Member+ only."""
 
     result = await db.execute(
         select(Anomaly).where(
