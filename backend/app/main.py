@@ -50,10 +50,12 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # ── Middleware ─────────────────────────────────────────────────────────────────
-# Order matters: CORSMiddleware must be added before custom middleware
+# TEMPORARY SDK TESTING: Allow all origins by using a catch-all regex.
+# We will change this later for production to strict ALLOWED_ORIGINS.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS + ["http://localhost", "http://localhost:80"],
+    allow_origin_regex=".*", # ALLOW ALL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
