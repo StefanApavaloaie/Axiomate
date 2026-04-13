@@ -1,7 +1,10 @@
+import csv
+import io
 import uuid
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, distinct
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -150,4 +153,96 @@ async def get_event_breakdown(
             )
             for row in rows
         ],
+    )
+
+
+@router.get("/{workspace_id}/overview/export")
+async def export_overview_csv(
+    workspace_id: uuid.UUID,
+    date_from: date = Query(default=None),
+    date_to: date = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the daily overview as a CSV file."""
+    await _verify_workspace_member(workspace_id, current_user.id, db)
+    if not date_to:
+        date_to = date.today()
+    if not date_from:
+        date_from = date_to - timedelta(days=29)
+
+    daily_stmt = (
+        select(
+            func.date(Event.occurred_at).label("date"),
+            func.count(Event.id).label("event_count"),
+            func.count(distinct(Event.user_id)).label("unique_users"),
+        )
+        .where(
+            Event.workspace_id == workspace_id,
+            func.date(Event.occurred_at) >= date_from,
+            func.date(Event.occurred_at) <= date_to,
+        )
+        .group_by(func.date(Event.occurred_at))
+        .order_by(func.date(Event.occurred_at))
+    )
+    rows = (await db.execute(daily_stmt)).all()
+
+    output = io.StringIO()
+    output.write("sep=,\n")
+    writer = csv.writer(output)
+    writer.writerow(["date", "event_count", "unique_users"])
+    for row in rows:
+        writer.writerow([row.date, row.event_count, row.unique_users])
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=overview_{date_from}_{date_to}.csv"},
+    )
+
+
+@router.get("/{workspace_id}/event-breakdown/export")
+async def export_event_breakdown_csv(
+    workspace_id: uuid.UUID,
+    date_from: date = Query(default=None),
+    date_to: date = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download event breakdown counts as a CSV file."""
+    await _verify_workspace_member(workspace_id, current_user.id, db)
+    if not date_to:
+        date_to = date.today()
+    if not date_from:
+        date_from = date_to - timedelta(days=29)
+
+    stmt = (
+        select(
+            Event.event_name,
+            func.count(Event.id).label("total_count"),
+            func.count(distinct(Event.user_id)).label("unique_users"),
+        )
+        .where(
+            Event.workspace_id == workspace_id,
+            func.date(Event.occurred_at) >= date_from,
+            func.date(Event.occurred_at) <= date_to,
+        )
+        .group_by(Event.event_name)
+        .order_by(func.count(Event.id).desc())
+    )
+    rows = (await db.execute(stmt)).all()
+
+    output = io.StringIO()
+    output.write("sep=,\n")
+    writer = csv.writer(output)
+    writer.writerow(["event_name", "total_count", "unique_users"])
+    for row in rows:
+        writer.writerow([row.event_name, row.total_count, row.unique_users])
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=events_{date_from}_{date_to}.csv"},
     )

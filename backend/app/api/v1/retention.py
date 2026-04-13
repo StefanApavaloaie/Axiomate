@@ -1,8 +1,11 @@
+import csv
+import io
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -180,4 +183,53 @@ async def get_retention(
         date_to=date_to,
         cohorts=cohorts,
         computed_at=datetime.now(timezone.utc),
+    )
+
+
+@router.get("/{workspace_id}/export")
+async def export_retention_csv(
+    workspace_id: uuid.UUID,
+    initial_event: str = Query(...),
+    return_event: str = Query(...),
+    date_from: date = Query(default=None),
+    date_to: date = Query(default=None),
+    granularity: str = Query(default="day", pattern="^(day|week)$"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download retention cohort matrix as a CSV file."""
+    result = await get_retention(
+        workspace_id=workspace_id,
+        initial_event=initial_event,
+        return_event=return_event,
+        date_from=date_from,
+        date_to=date_to,
+        granularity=granularity,
+        current_user=current_user,
+        db=db,
+    )
+
+    # Determine max periods
+    max_period = max(
+        (int(p) for c in result.cohorts for p in c.periods.keys()),
+        default=0,
+    )
+
+    output = io.StringIO()
+    output.write("sep=,\n")
+    writer = csv.writer(output)
+    writer.writerow(
+        ["cohort_date", "cohort_size"] + [f"period_{i}" for i in range(max_period + 1)]
+    )
+    for cohort in result.cohorts:
+        row = [cohort.cohort_date, cohort.cohort_size]
+        for i in range(max_period + 1):
+            row.append(cohort.periods.get(str(i), 0))
+        writer.writerow(row)
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=retention_{date_from}_{date_to}.csv"},
     )

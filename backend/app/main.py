@@ -1,8 +1,12 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import sys
 import asyncio
 
@@ -29,6 +33,9 @@ async def lifespan(app: FastAPI):
     logger.info(f"Shutting down {settings.APP_NAME}...")
 
 
+# ── Rate Limiter ────────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=["600/minute"])
+
 # ── App factory ───────────────────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
@@ -39,12 +46,14 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
     lifespan=lifespan,
 )
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # ── Middleware ─────────────────────────────────────────────────────────────────
 # Order matters: CORSMiddleware must be added before custom middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origins=settings.ALLOWED_ORIGINS + ["http://localhost", "http://localhost:80"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

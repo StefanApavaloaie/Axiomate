@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Calendar, RefreshCw, LayoutTemplate, Settings2 } from 'lucide-react'
+import { Calendar, RefreshCw, LayoutTemplate, Settings2, Download } from 'lucide-react'
 import { format, subDays } from 'date-fns'
 import { retentionApi } from '@/api'
 import { WorkspaceStorage } from '@/api/client'
 import RetentionHeatmap from '@/components/charts/RetentionHeatmap'
+import { downloadCsv } from '@/utils/csvExport'
 
 type RetentionPeriod = '7d' | '14d' | '30d'
 
@@ -14,6 +15,33 @@ export default function RetentionPage() {
     const [initialEvent, setInitialEvent] = useState('page_view')
     const [returnEvent, setReturnEvent] = useState('page_view')
     const [showConfig, setShowConfig] = useState(false)
+    const [downloading, setDownloading] = useState(false)
+
+    const handleExport = async () => {
+        if (!workspaceId) return
+        setDownloading(true)
+        try {
+            const today = new Date()
+            const days = period === '7d' ? 7 : period === '14d' ? 14 : 30
+            const dateFrom = format(subDays(today, days), 'yyyy-MM-dd')
+            const dateTo = format(today, 'yyyy-MM-dd')
+            const params = new URLSearchParams({
+                initial_event: initialEvent,
+                return_event: returnEvent,
+                date_from: dateFrom,
+                date_to: dateTo,
+                granularity: 'day',
+            })
+            await downloadCsv(
+                `http://localhost:8000/api/v1/retention/${workspaceId}/export?${params}`,
+                `axiomate_retention_${period}.csv`
+            )
+        } catch (e) {
+            console.error('Export failed', e)
+        } finally {
+            setDownloading(false)
+        }
+    }
 
     const { data, isLoading, refetch, isFetching } = useQuery({
         queryKey: ['retention', period, initialEvent, returnEvent, workspaceId],
@@ -91,6 +119,17 @@ export default function RetentionPage() {
                         className="flex items-center gap-2 px-3 py-2 rounded-xl bg-navy-800 border border-white/[0.07] text-slate-400 hover:text-white text-sm transition-all"
                     >
                         <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
+                    </button>
+                    {/* Export CSV */}
+                    <button
+                        id="retention-export-btn"
+                        onClick={handleExport}
+                        disabled={downloading}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-navy-800 border border-white/[0.07] text-slate-400 hover:text-white text-sm transition-all disabled:opacity-50"
+                        title="Export retention as CSV"
+                    >
+                        <Download size={14} className={downloading ? 'animate-bounce' : ''} />
+                        {downloading ? 'Exporting…' : 'Export CSV'}
                     </button>
                 </div>
             </div>

@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from starlette.concurrency import run_in_threadpool
 
 from app.dependencies import get_api_key_workspace_id
@@ -9,10 +11,13 @@ from app.schemas.event import BatchEventPayload, EventIngestionResponse
 from app.workers.celery_app import celery_app
 
 router = APIRouter(prefix="/ingest")
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/", response_model=EventIngestionResponse, status_code=202)
+@limiter.limit("200/minute")
 async def ingest_events(
+    request: Request,
     payload: BatchEventPayload,
     workspace_id: uuid.UUID = Depends(get_api_key_workspace_id),
 ):

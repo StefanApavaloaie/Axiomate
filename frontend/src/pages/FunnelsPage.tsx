@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
-import { Plus, Filter, ChevronRight, Calendar } from 'lucide-react'
+import { Plus, Filter, ChevronRight, Calendar, Download } from 'lucide-react'
 import { funnelsApi } from '@/api'
 import { WorkspaceStorage } from '@/api/client'
 import FunnelChart from '@/components/charts/FunnelChart'
 import CreateFunnelModal from '@/components/shared/CreateFunnelModal'
 import type { FunnelResponse } from '@/types'
+import { downloadCsv } from '@/utils/csvExport'
 
 type DateRange = '7d' | '30d' | '90d'
 
@@ -45,6 +46,24 @@ export default function FunnelsPage() {
     const [showModal, setShowModal] = useState(false)
     const [selectedFunnel, setSelectedFunnel] = useState<FunnelResponse | null>(null)
     const [range, setRange] = useState<DateRange>('30d')
+    const [downloading, setDownloading] = useState(false)
+
+    const handleExport = async () => {
+        if (!workspaceId || !selectedFunnel) return
+        setDownloading(true)
+        try {
+            const { date_from, date_to } = getRange(range)
+            const params = new URLSearchParams({ date_from, date_to })
+            await downloadCsv(
+                `http://localhost:8000/api/v1/funnels/${workspaceId}/${selectedFunnel.id}/results/export?${params}`,
+                `axiomate_funnel_${selectedFunnel.name.replace(/\s+/g, '_')}_${range}.csv`
+            )
+        } catch (e) {
+            console.error('Export failed', e)
+        } finally {
+            setDownloading(false)
+        }
+    }
 
     const { data: funnels = [], isLoading: funnelsLoading } = useQuery({
         queryKey: ['funnels', workspaceId],
@@ -165,19 +184,34 @@ export default function FunnelsPage() {
                                             Funnel analysis
                                         </p>
                                     </div>
-                                    <div className="flex items-center gap-1 bg-navy-900 border border-white/[0.06] rounded-lg p-0.5">
-                                        {DATE_RANGES.map(({ label, value }) => (
+                                    <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-1 bg-navy-900 border border-white/[0.06] rounded-lg p-0.5">
+                                            {DATE_RANGES.map(({ label, value }) => (
+                                                <button
+                                                    key={value}
+                                                    onClick={() => setRange(value)}
+                                                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${range === value
+                                                        ? 'bg-cyan-500/15 text-accent-cyan'
+                                                        : 'text-slate-400 hover:text-white'
+                                                        }`}
+                                                >
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {/* Export CSV */}
+                                        {result && (
                                             <button
-                                                key={value}
-                                                onClick={() => setRange(value)}
-                                                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${range === value
-                                                    ? 'bg-cyan-500/15 text-accent-cyan'
-                                                    : 'text-slate-400 hover:text-white'
-                                                    }`}
+                                                id="funnel-export-btn"
+                                                onClick={handleExport}
+                                                disabled={downloading}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-navy-900 border border-white/[0.06] text-slate-400 hover:text-white text-xs transition-all disabled:opacity-50"
+                                                title="Export funnel as CSV"
                                             >
-                                                {label}
+                                                <Download size={12} className={downloading ? 'animate-bounce' : ''} />
+                                                {downloading ? 'Exporting…' : 'Export'}
                                             </button>
-                                        ))}
+                                        )}
                                     </div>
                                 </div>
 

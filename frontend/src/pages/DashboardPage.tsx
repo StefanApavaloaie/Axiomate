@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Activity, Users, RefreshCw, BarChart2 } from 'lucide-react'
+import { Activity, Users, RefreshCw, BarChart2, Download } from 'lucide-react'
 import KpiCard from '@/components/ui/KpiCard'
 import EventVolumeChart from '@/components/charts/EventVolumeChart'
 import EventBreakdownChart from '@/components/charts/EventBreakdownChart'
 import { useOverview, useEventBreakdown } from '@/hooks/useDashboard'
 import type { DateRange } from '@/hooks/useDashboard'
+import { WorkspaceStorage } from '@/api/client'
+import { downloadCsv } from '@/utils/csvExport'
 
 const DATE_RANGES: { label: string; value: DateRange }[] = [
     { label: '7 days', value: '7d' },
@@ -14,9 +16,26 @@ const DATE_RANGES: { label: string; value: DateRange }[] = [
 
 export default function DashboardPage() {
     const [range, setRange] = useState<DateRange>('30d')
+    const [downloading, setDownloading] = useState(false)
+    const workspaceId = WorkspaceStorage.get()
 
     const { data: overview, isLoading: overviewLoading, refetch } = useOverview(range)
     const { data: breakdown, isLoading: breakdownLoading } = useEventBreakdown(range)
+
+    const handleExport = async () => {
+        if (!workspaceId) return
+        setDownloading(true)
+        try {
+            await downloadCsv(
+                `http://localhost:8000/api/v1/dashboards/${workspaceId}/overview/export`,
+                `axiomate_overview_${range}.csv`
+            )
+        } catch (e) {
+            console.error('Export failed', e)
+        } finally {
+            setDownloading(false)
+        }
+    }
 
     return (
         <div className="space-y-6 max-w-7xl">
@@ -52,6 +71,17 @@ export default function DashboardPage() {
                         className="w-9 h-9 flex items-center justify-center rounded-xl bg-navy-800 border border-white/[0.07] text-slate-400 hover:text-white hover:border-white/[0.12] transition-all duration-150"
                     >
                         <RefreshCw size={15} />
+                    </button>
+                    {/* Export CSV */}
+                    <button
+                        id="dashboard-export-btn"
+                        onClick={handleExport}
+                        disabled={downloading}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-navy-800 border border-white/[0.07] text-slate-400 hover:text-white text-sm transition-all disabled:opacity-50"
+                        title="Export overview as CSV"
+                    >
+                        <Download size={14} className={downloading ? 'animate-bounce' : ''} />
+                        {downloading ? 'Exporting…' : 'Export CSV'}
                     </button>
                 </div>
             </div>

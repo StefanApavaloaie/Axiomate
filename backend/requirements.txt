@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 sqlalchemy[asyncio]
 alembic
 psycopg
@@ -9,3 +9,4 @@ redis
 python-jose
 httpx
 requests
+slowapi

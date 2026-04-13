@@ -1,8 +1,11 @@
+import csv
+import io
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,4 +183,39 @@ async def compute_funnel_results(
         date_to=date_to,
         steps=step_results,
         computed_at=datetime.now(timezone.utc),
+    )
+
+
+@router.get("/{workspace_id}/{funnel_id}/results/export")
+async def export_funnel_results_csv(
+    workspace_id: uuid.UUID,
+    funnel_id: uuid.UUID,
+    date_from: date = Query(default=None),
+    date_to: date = Query(default=None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download funnel step results as a CSV file."""
+    # Reuse existing logic by calling the compute endpoint
+    result = await compute_funnel_results(
+        workspace_id=workspace_id,
+        funnel_id=funnel_id,
+        date_from=date_from,
+        date_to=date_to,
+        current_user=current_user,
+        db=db,
+    )
+
+    output = io.StringIO()
+    output.write("sep=,\n")
+    writer = csv.writer(output)
+    writer.writerow(["step", "event_name", "user_count", "conversion_rate_pct"])
+    for s in result.steps:
+        writer.writerow([s.step, s.event_name, s.user_count, round(s.conversion_rate * 100, 2)])
+    output.seek(0)
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=funnel_{funnel_id}.csv"},
     )

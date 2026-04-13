@@ -31,6 +31,7 @@ services:
     build: 
       context: ./backend
     restart: always
+    env_file: ./backend/.env
     environment:
       # Use internal Docker hostnames
       - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
@@ -41,8 +42,6 @@ services:
       # Security & App Settings
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:-change-this-huge-secure-secret-in-prod}
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - DEFAULT_ALLOWED_ORIGIN=${ALLOWED_DOMAIN:-http://localhost}
       # Ollama Host (Points to the host machine running Ollama)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
@@ -59,6 +58,7 @@ services:
     build: 
       context: ./backend
     restart: always
+    env_file: ./backend/.env
     environment:
       - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
       - SYNC_DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
