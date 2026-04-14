@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
-import { useMutation } from '@tanstack/react-query'
 import { Send, Bot, User, Sparkles, Cpu, Loader2, AlertTriangle } from 'lucide-react'
-import { aiApi } from '@/api'
-import { WorkspaceStorage } from '@/api/client'
+import { TokenStorage, WorkspaceStorage } from '@/api/client'
 
 type ChatMessage = {
     id: string
     role: 'user' | 'assistant'
     content: string
+    streaming?: boolean
 }
+
+const API_BASE = 'http://localhost:8000/api/v1'
 
 export default function AiCopilotPage() {
     const workspaceId = WorkspaceStorage.get()
@@ -22,57 +23,123 @@ export default function AiCopilotPage() {
                 : "Hi! Please select a workspace first using the switcher in the top bar, then I can answer questions about your data.",
         },
     ])
-
+    const [isStreaming, setIsStreaming] = useState(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const abortRef = useRef<AbortController | null>(null)
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
     }, [messages])
 
-    const { mutate: sendQuery, isPending } = useMutation({
-        mutationFn: (question: string) => aiApi.query(workspaceId!, question),
-        onSuccess: (data) => {
-            setMessages((prev) => [
-                ...prev,
-                {
-                    id: Date.now().toString(),
-                    role: 'assistant',
-                    // Backend returns 'answer', not 'llm_response'
-                    content: data.answer,
-                },
-            ])
-        },
-        onError: (err: { response?: { status?: number } }) => {
-            const status = err?.response?.status
-            let msg =
-                "I'm sorry, I couldn't reach the backend AI service. Make sure Ollama is running (`ollama serve`)."
-
-            if (status === 503) {
-                msg = "Ollama is not running. Start it with: `ollama serve` in a terminal, then try again."
-            } else if (status === 403) {
-                msg = "You don't have access to this workspace."
-            }
-
-            setMessages((prev) => [
-                ...prev,
-                { id: Date.now().toString(), role: 'assistant', content: msg },
-            ])
-        },
-    })
-
-    function handleSubmit(e: React.FormEvent) {
+    async function handleSubmit(e: React.FormEvent) {
         e.preventDefault()
-        if (!input.trim() || isPending || !workspaceId) return
+        if (!input.trim() || isStreaming || !workspaceId) return
 
         const question = input.trim()
         setInput('')
 
-        setMessages((prev) => [
-            ...prev,
-            { id: Date.now().toString(), role: 'user', content: question },
-        ])
+        // Add user message
+        const userMsgId = `user-${Date.now()}`
+        const assistantMsgId = `assistant-${Date.now()}`
 
-        sendQuery(question)
+        setMessages(prev => [
+            ...prev,
+            { id: userMsgId, role: 'user', content: question },
+            { id: assistantMsgId, role: 'assistant', content: '', streaming: true },
+        ])
+        setIsStreaming(true)
+
+        // Set up SSE streaming via fetch
+        const controller = new AbortController()
+        abortRef.current = controller
+
+        try {
+            const token = TokenStorage.getAccess()
+            const response = await fetch(`${API_BASE}/ai/query`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ question, workspace_id: workspaceId }),
+                signal: controller.signal,
+            })
+
+            if (!response.ok || !response.body) {
+                throw new Error(`HTTP ${response.status}`)
+            }
+
+            const reader = response.body.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+
+            while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split('\n')
+                buffer = lines.pop() ?? ''  // keep incomplete last line in buffer
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue
+                    const payload = line.slice(6).trim()
+
+                    if (payload === '[DONE]') {
+                        // Mark streaming as finished
+                        setMessages(prev =>
+                            prev.map(m =>
+                                m.id === assistantMsgId ? { ...m, streaming: false } : m
+                            )
+                        )
+                        break
+                    }
+
+                    try {
+                        const chunk = JSON.parse(payload)
+
+                        if (chunk.error) {
+                            setMessages(prev =>
+                                prev.map(m =>
+                                    m.id === assistantMsgId
+                                        ? { ...m, content: `⚠️ ${chunk.error}`, streaming: false }
+                                        : m
+                                )
+                            )
+                            break
+                        }
+
+                        if (chunk.token) {
+                            setMessages(prev =>
+                                prev.map(m =>
+                                    m.id === assistantMsgId
+                                        ? { ...m, content: m.content + chunk.token }
+                                        : m
+                                )
+                            )
+                        }
+                    } catch {
+                        // Malformed JSON chunk — skip
+                    }
+                }
+            }
+        } catch (err: unknown) {
+            if (err instanceof Error && err.name === 'AbortError') return
+            setMessages(prev =>
+                prev.map(m =>
+                    m.id === assistantMsgId
+                        ? {
+                              ...m,
+                              content: "⚠️ Couldn't reach the AI service. Make sure Ollama is running (`ollama serve`).",
+                              streaming: false,
+                          }
+                        : m
+                )
+            )
+        } finally {
+            setIsStreaming(false)
+            abortRef.current = null
+        }
     }
 
     return (
@@ -133,14 +200,22 @@ export default function AiCopilotPage() {
                                 }`}
                             >
                                 {msg.content}
+                                {/* Blinking cursor while streaming */}
+                                {msg.streaming && (
+                                    <span className="inline-block w-0.5 h-4 bg-cyan-400 ml-0.5 animate-pulse align-middle" />
+                                )}
+                                {/* Empty streaming bubble placeholder */}
+                                {msg.streaming && !msg.content && (
+                                    <span className="text-slate-500 italic text-xs">Thinking…</span>
+                                )}
                             </div>
                         </div>
                     )
                 })}
 
-                {/* Loading Bubble */}
-                {isPending && (
-                    <div className="flex gap-4 max-w-[85%] mr-auto animate-pulse">
+                {/* Typing indicator shown only before first token arrives */}
+                {isStreaming && messages[messages.length - 1]?.content === '' && (
+                    <div className="flex gap-4 max-w-[85%] mr-auto">
                         <div className="flex-shrink-0 w-8 h-8 rounded-full bg-navy-800 border border-white/[0.1] shadow-glow-cyan flex items-center justify-center">
                             <Bot size={16} className="text-accent-cyan" />
                         </div>
@@ -165,16 +240,16 @@ export default function AiCopilotPage() {
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        disabled={isPending || !workspaceId}
+                        disabled={isStreaming || !workspaceId}
                         placeholder={workspaceId ? 'Ask about your analytics data…' : 'Select a workspace first…'}
                         className="flex-1 bg-transparent px-6 py-4 text-white placeholder-slate-500 text-sm focus:outline-none disabled:opacity-50 font-medium"
                     />
                     <button
                         type="submit"
-                        disabled={!input.trim() || isPending || !workspaceId}
+                        disabled={!input.trim() || isStreaming || !workspaceId}
                         className="absolute right-2 w-10 h-10 flex items-center justify-center rounded-xl bg-cyan-500 text-white hover:bg-cyan-400 disabled:opacity-50 disabled:hover:bg-cyan-500 transition-colors shadow-md"
                     >
-                        {isPending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} className="ml-0.5" />}
+                        {isStreaming ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} className="ml-0.5" />}
                     </button>
                 </form>
                 <p className="text-center text-[11px] text-slate-500 mt-3 font-medium tracking-wide">

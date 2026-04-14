@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -324,3 +325,158 @@ async def update_workspace_member(
         user_email=target_user.email,
         user_avatar_url=target_user.avatar_url,
     )
+
+
+# ── Notification Settings ─────────────────────────────────────────────────────
+
+class NotificationSettingsUpdate(BaseModel):
+    alert_webhook_url: str | None = None
+
+
+class NotificationSettingsResponse(BaseModel):
+    alert_webhook_url: str | None
+    model_config = {"from_attributes": True}
+
+
+@router.get("/{workspace_id}/notifications", response_model=NotificationSettingsResponse)
+async def get_notification_settings(
+    workspace_id: uuid.UUID,
+    member: WorkspaceMember = Depends(require_role("owner", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns the current notification/webhook settings for the workspace."""
+    result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )
+    ws = result.scalar_one_or_none()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+    return NotificationSettingsResponse(alert_webhook_url=ws.alert_webhook_url)
+
+
+@router.patch("/{workspace_id}/notifications", response_model=NotificationSettingsResponse)
+async def update_notification_settings(
+    workspace_id: uuid.UUID,
+    data: NotificationSettingsUpdate,
+    member: WorkspaceMember = Depends(require_role("owner", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Saves a Slack or Discord webhook URL for the workspace.
+    When a critical/warning anomaly is detected, Axiomate will POST to this URL.
+    Owner or Admin only.
+    """
+    result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )
+    ws = result.scalar_one_or_none()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+
+    ws.alert_webhook_url = data.alert_webhook_url
+    await db.commit()
+    await db.refresh(ws)
+    return NotificationSettingsResponse(alert_webhook_url=ws.alert_webhook_url)
+
+
+@router.post("/{workspace_id}/notifications/test", status_code=200)
+async def test_notification_webhook(
+    workspace_id: uuid.UUID,
+    member: WorkspaceMember = Depends(require_role("owner", "admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sends a test notification to the configured webhook URL to verify it works.
+    Returns 400 if no webhook URL is configured, 502 if the webhook call fails.
+    """
+    import httpx
+
+    result = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )
+    ws = result.scalar_one_or_none()
+    if not ws or not ws.alert_webhook_url:
+        raise HTTPException(status_code=400, detail="No webhook URL configured for this workspace.")
+
+    payload = _build_webhook_payload(
+        workspace_name=ws.name,
+        event_name="test_event",
+        severity="warning",
+        z_score=3.1,
+        expected=500.0,
+        actual=120.0,
+        is_test=True,
+        webhook_url=ws.alert_webhook_url,
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(ws.alert_webhook_url, json=payload)
+            resp.raise_for_status()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Webhook delivery failed: {exc}. Check that the URL is a valid Slack or Discord Incoming Webhook."
+        )
+
+    return {"message": "Test notification sent successfully."}
+
+
+def _build_webhook_payload(
+    workspace_name: str,
+    event_name: str,
+    severity: str,
+    z_score: float,
+    expected: float,
+    actual: float,
+    is_test: bool = False,
+    webhook_url: str = "",
+) -> dict:
+    """
+    Builds a webhook payload for either Slack or Discord.
+
+    The key fix: Discord and Slack use incompatible JSON schemas.
+    Sending Slack's `attachments` field to Discord causes a 400 Bad Request
+    because Discord interprets `attachments` as file upload metadata, not
+    rich message formatting. We detect the target platform by URL and send
+    ONLY the matching format.
+
+    - Discord URLs contain `discord.com/api/webhooks/`  → Discord format
+    - All other URLs                                     → Slack format
+    """
+    severity_emoji = {"warning": "⚠️", "critical": "🚨"}.get(severity, "ℹ️")
+    severity_color = {"warning": 16776960, "critical": 16711680}.get(severity, 3447003)
+    test_prefix = "[TEST] " if is_test else ""
+    direction = "spike 📈" if z_score > 0 else "drop 📉"
+
+    title = f"{test_prefix}{severity_emoji} Axiomate Alert — {workspace_name}"
+    body_md = (                                   # Discord supports markdown
+        f"**Event:** `{event_name}`\n"
+        f"**Severity:** {severity.upper()}\n"
+        f"**Expected volume:** {expected:.0f} events\n"
+        f"**Actual volume:** {actual:.0f} events\n"
+        f"**Z-score:** {z_score:+.2f} ({direction})"
+    )
+    body_plain = body_md.replace("**", "*")       # Slack uses mrkdwn (*bold*)
+
+    is_discord = "discord.com/api/webhooks" in webhook_url
+
+    if is_discord:
+        return {
+            "content": title,
+            "embeds": [{
+                "title": f"Anomaly Detected: {event_name}",
+                "description": body_md,
+                "color": severity_color,
+                "footer": {"text": "Axiomate Analytics"},
+            }],
+        }
+    else:
+        # Slack Incoming Webhook format
+        return {
+            "text": title,
+            "attachments": [{
+                "color": "danger" if severity == "critical" else "warning",
+                "text": body_plain,
+            }],
+        }

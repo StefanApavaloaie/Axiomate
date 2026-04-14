@@ -10,6 +10,8 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    # Optional Slack/Discord webhook URL for anomaly alert notifications
+    alert_webhook_url: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     members: Mapped[list["WorkspaceMember"]] = relationship(
         "WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan"
     )

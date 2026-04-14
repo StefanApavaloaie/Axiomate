@@ -19,9 +19,12 @@ import {
     Fingerprint,
     Mail,
     ChevronRight,
+    Bell,
+    Webhook,
+    Send,
 } from 'lucide-react'
 import { workspacesApi, apiKeysApi, authApi } from '@/api'
-import { WorkspaceStorage } from '@/api/client'
+import { WorkspaceStorage, apiClient } from '@/api/client'
 import { useToast } from '@/context/ToastContext'
 import type { ApiKeyCreatedResponse, ApiKeyResponse, WorkspaceMemberWithUser, WorkspaceResponse } from '@/types'
 
@@ -685,11 +688,127 @@ function TeamTab({ workspaceId }: { workspaceId: string }) {
     )
 }
 
+// ─── Tab: Notifications ──────────────────────────────────────────────────────
+function NotificationsTab({ workspaceId }: { workspaceId: string }) {
+    const { showToast } = useToast()
+    const [webhookUrl, setWebhookUrl] = useState('')
+    const [saved, setSaved] = useState(false)
+
+    const { data: settings, isLoading } = useQuery({
+        queryKey: ['notifications', workspaceId],
+        queryFn: () => apiClient.get<{ alert_webhook_url: string | null }>(`/workspaces/${workspaceId}/notifications`).then((r: { data: { alert_webhook_url: string | null } }) => r.data),
+        enabled: !!workspaceId,
+    })
+
+    useEffect(() => {
+        if (settings?.alert_webhook_url !== undefined) {
+            setWebhookUrl(settings.alert_webhook_url ?? '')
+        }
+    }, [settings])
+
+    const { mutate: save, isPending: saving } = useMutation({
+        mutationFn: () => apiClient.patch(`/workspaces/${workspaceId}/notifications`, { alert_webhook_url: webhookUrl || null }),
+        onSuccess: () => {
+            showToast('Webhook URL saved.', 'success')
+            setSaved(true)
+            setTimeout(() => setSaved(false), 2000)
+        },
+        onError: (err: any) => showToast(err?.response?.data?.detail ?? 'Failed to save.', 'error'),
+    })
+
+    const { mutate: sendTest, isPending: testing } = useMutation({
+        mutationFn: () => apiClient.post(`/workspaces/${workspaceId}/notifications/test`),
+        onSuccess: () => showToast('Test alert sent! Check your Slack/Discord channel.', 'success'),
+        onError: (err: any) => showToast(err?.response?.data?.detail ?? 'Webhook delivery failed. Check the URL.', 'error'),
+    })
+
+    return (
+        <div className="space-y-6">
+            {/* Info banner */}
+            <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-5">
+                <div className="flex items-start gap-3">
+                    <Bell size={18} className="text-accent-cyan mt-0.5 flex-shrink-0" />
+                    <div>
+                        <h3 className="text-sm font-semibold text-white mb-1">Anomaly Alerts</h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                            When the anomaly detection job detects a critical or warning spike/drop in your event volume,
+                            Axiomate will instantly POST a notification to your webhook URL.
+                            Works with <strong className="text-slate-300">Slack Incoming Webhooks</strong> and{' '}
+                            <strong className="text-slate-300">Discord Webhooks</strong> out of the box.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* Webhook URL input */}
+            <div className="bg-navy-800 border border-white/[0.07] rounded-2xl p-6 space-y-4">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-xl bg-slate-500/10 border border-slate-500/15 flex items-center justify-center">
+                        <Webhook size={15} className="text-slate-400" />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-semibold text-white">Webhook URL</h3>
+                        <p className="text-xs text-slate-500">Slack: Settings → Incoming Webhooks · Discord: Channel → Integrations → Webhooks</p>
+                    </div>
+                </div>
+
+                {isLoading ? (
+                    <div className="h-10 bg-white/[0.03] animate-pulse rounded-xl" />
+                ) : (
+                    <input
+                        type="url"
+                        value={webhookUrl}
+                        onChange={(e) => setWebhookUrl(e.target.value)}
+                        placeholder="https://hooks.slack.com/services/... or https://discord.com/api/webhooks/..."
+                        className="w-full bg-navy-900/60 border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 transition-all"
+                    />
+                )}
+
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => save()}
+                        disabled={saving}
+                        className="flex items-center gap-2 px-5 py-2 bg-accent-cyan/10 border border-accent-cyan/30 text-accent-cyan hover:bg-accent-cyan/20 rounded-xl text-sm font-medium transition-all disabled:opacity-40"
+                    >
+                        {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : <Save size={14} />}
+                        {saving ? 'Saving…' : saved ? 'Saved!' : 'Save Webhook'}
+                    </button>
+
+                    <button
+                        onClick={() => sendTest()}
+                        disabled={testing || !webhookUrl.trim()}
+                        className="flex items-center gap-2 px-5 py-2 bg-white/[0.04] border border-white/[0.08] text-slate-300 hover:text-white hover:border-white/[0.15] rounded-xl text-sm font-medium transition-all disabled:opacity-40"
+                    >
+                        {testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                        {testing ? 'Sending…' : 'Send Test'}
+                    </button>
+                </div>
+            </div>
+
+            {/* Severity guide */}
+            <div className="bg-navy-800 border border-white/[0.07] rounded-2xl p-5 space-y-3">
+                <h3 className="text-sm font-semibold text-white">When will I get notified?</h3>
+                <div className="space-y-2 text-xs">
+                    <div className="flex items-center gap-3">
+                        <span className="text-red-400 font-bold w-16">🚨 Critical</span>
+                        <span className="text-slate-400">Event volume is 4+ standard deviations from its 14-day average</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className="text-yellow-400 font-bold w-16">⚠️ Warning</span>
+                        <span className="text-slate-400">Event volume is 2.5–4 standard deviations from its 14-day average</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 const TABS = [
     { id: 'general', label: 'General', icon: Building2 },
     { id: 'api-keys', label: 'API Keys', icon: Key },
     { id: 'team', label: 'Team', icon: Users },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -746,6 +865,7 @@ export default function SettingsPage() {
                     {activeTab === 'general' && <GeneralTab workspaceId={workspaceId} />}
                     {activeTab === 'api-keys' && <ApiKeysTab workspaceId={workspaceId} />}
                     {activeTab === 'team' && <TeamTab workspaceId={workspaceId} />}
+                    {activeTab === 'notifications' && <NotificationsTab workspaceId={workspaceId} />}
                 </div>
             )}
         </div>
