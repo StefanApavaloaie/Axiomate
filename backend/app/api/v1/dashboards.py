@@ -19,6 +19,8 @@ from app.schemas.dashboard import (
     EventBreakdownResponse,
     OverviewResponse,
 )
+from app.services.cache_service import cache
+from app.config import settings
 
 router = APIRouter(prefix="/dashboards")
 
@@ -51,7 +53,7 @@ async def get_overview(
 ):
     """
     Returns aggregate overview metrics for a workspace within a date range.
-    Defaults to the last 30 days.
+    Defaults to the last 30 days. Results are Redis-cached for 10 minutes.
     """
     await _verify_workspace_member(workspace_id, current_user.id, db)
 
@@ -60,6 +62,12 @@ async def get_overview(
         date_to = date.today()
     if not date_from:
         date_from = date_to - timedelta(days=29)
+
+    # ── Cache check ────────────────────────────────────────────────────────────
+    cache_key = f"axiomate:dashboard:overview:{workspace_id}:{date_from}:{date_to}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return OverviewResponse(**cached)
 
     # --- Total counts ---
     total_stmt = select(
@@ -98,13 +106,18 @@ async def get_overview(
         for row in daily_rows
     ]
 
-    return OverviewResponse(
+    result = OverviewResponse(
         date_from=date_from,
         date_to=date_to,
         total_events=totals.total_events,
         total_unique_users=totals.total_unique_users,
         daily_series=daily_series,
     )
+
+    # ── Store in cache ─────────────────────────────────────────────────────────
+    await cache.set(cache_key, result.model_dump(), ttl=settings.CACHE_TTL_OVERVIEW)
+
+    return result
 
 
 @router.get("/{workspace_id}/event-breakdown", response_model=EventBreakdownResponse)
@@ -117,7 +130,7 @@ async def get_event_breakdown(
 ):
     """
     Returns a breakdown of event counts grouped by event name.
-    Great for a bar chart or ranking table on the frontend.
+    Results are Redis-cached for 10 minutes.
     """
     await _verify_workspace_member(workspace_id, current_user.id, db)
 
@@ -125,6 +138,12 @@ async def get_event_breakdown(
         date_to = date.today()
     if not date_from:
         date_from = date_to - timedelta(days=29)
+
+    # ── Cache check ────────────────────────────────────────────────────────────
+    cache_key = f"axiomate:dashboard:breakdown:{workspace_id}:{date_from}:{date_to}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return EventBreakdownResponse(**cached)
 
     stmt = (
         select(
@@ -142,7 +161,7 @@ async def get_event_breakdown(
     )
     rows = (await db.execute(stmt)).all()
 
-    return EventBreakdownResponse(
+    result = EventBreakdownResponse(
         date_from=date_from,
         date_to=date_to,
         events=[
@@ -154,6 +173,11 @@ async def get_event_breakdown(
             for row in rows
         ],
     )
+
+    # ── Store in cache ─────────────────────────────────────────────────────────
+    await cache.set(cache_key, result.model_dump(), ttl=settings.CACHE_TTL_OVERVIEW)
+
+    return result
 
 
 @router.get("/{workspace_id}/overview/export")

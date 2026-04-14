@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.session import get_db
 from app.dependencies import get_current_user, get_workspace_member, require_role
 from app.models.event import Event
@@ -22,6 +23,7 @@ from app.schemas.funnel import (
     FunnelStep,
     FunnelStepResult,
 )
+from app.services.cache_service import cache
 
 router = APIRouter(prefix="/funnels")
 
@@ -99,8 +101,7 @@ async def compute_funnel_results(
 ):
     """
     Computes live drop-off rates for each step of a funnel.
-    Uses a sequential query: counts distinct users who fired step N 
-    AND previously fired step N-1 within the date range.
+    Results are Redis-cached for 30 minutes per funnel+date-range combination.
     """
 
     # Fetch funnel definition
@@ -115,6 +116,12 @@ async def compute_funnel_results(
         date_to = date.today()
     if not date_from:
         date_from = date_to - timedelta(days=29)
+
+    # ── Cache check ────────────────────────────────────────────────────────────
+    cache_key = f"axiomate:funnel:results:{workspace_id}:{funnel_id}:{date_from}:{date_to}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return FunnelResultResponse(**cached)
 
     steps = sorted(funnel.steps, key=lambda s: s["step"])
     step_results: List[FunnelStepResult] = []
@@ -169,13 +176,18 @@ async def compute_funnel_results(
             )
         )
 
-    return FunnelResultResponse(
+    funnel_result = FunnelResultResponse(
         funnel_id=funnel_id,
         date_from=date_from,
         date_to=date_to,
         steps=step_results,
         computed_at=datetime.now(timezone.utc),
     )
+
+    # ── Store in cache ─────────────────────────────────────────────────────────
+    await cache.set(cache_key, funnel_result.model_dump(), ttl=settings.CACHE_TTL_FUNNEL)
+
+    return funnel_result
 
 
 @router.get("/{workspace_id}/{funnel_id}/results/export")

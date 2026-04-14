@@ -10,11 +10,13 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.session import get_db
 from app.dependencies import get_current_user
 from app.models.event import Event
 from app.models.user import User
 from app.models.workspace import WorkspaceMember
+from app.services.cache_service import cache
 
 router = APIRouter(prefix="/retention")
 
@@ -61,6 +63,7 @@ async def get_retention(
     Computes a cohort retention matrix.
     Groups users by the day/week/month they first fired `initial_event`,
     then tracks how many came back and fired `return_event` in subsequent periods.
+    Results are Redis-cached for 1 hour.
     """
     await _verify_member(workspace_id, current_user.id, db)
 
@@ -68,6 +71,15 @@ async def get_retention(
         date_to = date.today()
     if not date_from:
         date_from = date_to - timedelta(days=83)
+
+    # ── Cache check ────────────────────────────────────────────────────────────
+    cache_key = (
+        f"axiomate:retention:{workspace_id}:{date_from}:{date_to}"
+        f":{initial_event}:{return_event}:{granularity}"
+    )
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return RetentionResponse(**cached)
 
     # Convert to timezone-aware datetimes for filtering
     dt_from = datetime(date_from.year, date_from.month, date_from.day, tzinfo=timezone.utc)
@@ -175,7 +187,7 @@ async def get_retention(
         for cp, periods in sorted(cohort_user_counts.items())
     ]
 
-    return RetentionResponse(
+    retention_result = RetentionResponse(
         initial_event=initial_event,
         return_event=return_event,
         granularity=granularity,
@@ -184,6 +196,11 @@ async def get_retention(
         cohorts=cohorts,
         computed_at=datetime.now(timezone.utc),
     )
+
+    # ── Store in cache ─────────────────────────────────────────────────────────
+    await cache.set(cache_key, retention_result.model_dump(), ttl=settings.CACHE_TTL_RETENTION)
+
+    return retention_result
 
 
 @router.get("/{workspace_id}/export")

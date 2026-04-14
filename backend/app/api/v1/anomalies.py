@@ -5,12 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db.session import get_db
 from app.dependencies import get_current_user, get_workspace_member, require_role
 from app.models.anomaly import Anomaly
 from app.models.user import User
 from app.models.workspace import WorkspaceMember
 from app.schemas.anomaly import AnomalyListResponse, AnomalyResponse
+from app.services.cache_service import cache
 
 router = APIRouter(prefix="/anomalies")
 
@@ -31,7 +33,14 @@ async def list_anomalies(
     """
     Lists anomalies detected by background Celery jobs for a workspace.
     Supports filtering by severity and acknowledgement status.
+    Results are Redis-cached for 1 hour (invalidated when an anomaly is acknowledged).
     """
+
+    # ── Cache check ────────────────────────────────────────────────────────────
+    cache_key = f"axiomate:anomalies:{workspace_id}:{severity}:{unacknowledged_only}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return AnomalyListResponse(**cached)
 
     stmt = select(Anomaly).where(Anomaly.workspace_id == workspace_id)
 
@@ -43,10 +52,15 @@ async def list_anomalies(
     stmt = stmt.order_by(Anomaly.created_at.desc()).limit(limit)
     anomalies = (await db.execute(stmt)).scalars().all()
 
-    return AnomalyListResponse(
+    result = AnomalyListResponse(
         anomalies=[AnomalyResponse.model_validate(a) for a in anomalies],
         total=len(anomalies),
     )
+
+    # ── Store in cache ─────────────────────────────────────────────────────────
+    await cache.set(cache_key, result.model_dump(), ttl=settings.CACHE_TTL_ANOMALIES)
+
+    return result
 
 
 @router.patch("/{workspace_id}/{anomaly_id}/acknowledge", response_model=AnomalyResponse)
@@ -72,4 +86,10 @@ async def acknowledge_anomaly(
     anomaly.is_acknowledged = True
     await db.commit()
     await db.refresh(anomaly)
+
+    # ── Invalidate cache ────────────────────────────────────────────────────────
+    # The acknowledge action changes what list_anomalies returns, so we delete
+    # all anomaly cache entries for this workspace (covers all filter combos).
+    await cache.invalidate_workspace(str(workspace_id))
+
     return AnomalyResponse.model_validate(anomaly)
