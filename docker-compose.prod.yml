@@ -74,6 +74,29 @@ services:
         condition: service_healthy
     command: ["celery", "-A", "app.workers.celery_app", "worker", "--loglevel=info"]
 
+  # Celery Beat: The scheduler that places periodic tasks onto the queue.
+  # Without this service, nothing in beat_schedule ever runs automatically.
+  celery_beat:
+    build: 
+      context: ./backend
+    restart: always
+    env_file: ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
+      - SYNC_DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:-axiomate}:${POSTGRES_PASSWORD:-axiomate}@postgres:5432/${POSTGRES_DB:-axiomate}
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-change-this-huge-secure-secret-in-prod}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # --schedule stores the beat state in /tmp so it doesn't conflict with the worker
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+
   frontend:
     build:
       context: ./frontend

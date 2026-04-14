@@ -10,10 +10,9 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
         "app.workers.event_tasks",
-        # "app.workers.aggregation_tasks",
+        "app.workers.aggregation_tasks",
         "app.workers.anomaly_tasks",
-        # "app.workers.report_tasks",
-        # "app.workers.ai_tasks",
+        "app.workers.report_tasks",
     ],
 )
 

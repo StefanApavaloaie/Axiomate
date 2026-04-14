@@ -1,4 +1,6 @@
 import uuid
+from datetime import datetime, timezone
+from typing import List
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,6 +12,7 @@ from app.config import settings
 from app.db.session import get_db
 from app.dependencies import get_current_user, get_workspace_member
 from app.models.event import Event
+from app.models.saved_query import SavedQuery
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 
@@ -113,3 +116,89 @@ async def query_ai(
         answer=answer,
         context_used=context,
     )
+
+
+# ── Saved Queries ─────────────────────────────────────────────────────────────
+
+class SavedQueryCreate(BaseModel):
+    name: str
+    question: str
+    last_response: str | None = None
+    workspace_id: uuid.UUID
+
+
+class SavedQueryResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    question: str
+    last_response: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+@router.get("/saved-queries", response_model=List[SavedQueryResponse])
+async def list_saved_queries(
+    workspace_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns all saved AI queries for a workspace.
+    Allows users to bookmark and quickly re-run useful questions.
+    """
+    # Verify membership
+    mem = await db.execute(
+        select(WorkspaceMember)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .where(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.user_id == current_user.id,
+            Workspace.deleted_at.is_(None),
+        )
+    )
+    if not mem.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="You do not have access to this workspace.")
+
+    result = await db.execute(
+        select(SavedQuery)
+        .where(SavedQuery.workspace_id == workspace_id)
+        .order_by(SavedQuery.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.post("/saved-queries", response_model=SavedQueryResponse, status_code=201)
+async def save_query(
+    data: SavedQueryCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Saves an AI question (and optionally its last response) so users can 
+    quickly replay it from the copilot sidebar without retyping.
+    """
+    # Verify membership
+    mem = await db.execute(
+        select(WorkspaceMember)
+        .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
+        .where(
+            WorkspaceMember.workspace_id == data.workspace_id,
+            WorkspaceMember.user_id == current_user.id,
+            Workspace.deleted_at.is_(None),
+        )
+    )
+    if not mem.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="You do not have access to this workspace.")
+
+    saved = SavedQuery(
+        workspace_id=data.workspace_id,
+        user_id=current_user.id,
+        name=data.name,
+        question=data.question,
+        last_response=data.last_response,
+    )
+    db.add(saved)
+    await db.commit()
+    await db.refresh(saved)
+    return saved
