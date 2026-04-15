@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -5,6 +6,22 @@ class Settings(BaseSettings):
     APP_NAME: str = "Axiomate"
     DEBUG: bool = False
     SECRET_KEY: str
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def secret_key_must_be_strong(cls, v: str) -> str:
+        """
+        Refuse to start if SECRET_KEY is too short.
+        JWTs are signed with HMAC-SHA256 — a key shorter than 32 characters
+        can be brute-forced in seconds, making all user sessions forgeable.
+        Generate a strong key with: python -c "import secrets; print(secrets.token_hex(32))"
+        """
+        if len(v) < 32:
+            raise ValueError(
+                f"SECRET_KEY must be at least 32 characters long (got {len(v)}). "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        return v
 
     #postgresql
 

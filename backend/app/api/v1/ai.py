@@ -4,9 +4,11 @@ from datetime import date, datetime, timedelta, timezone
 from typing import AsyncIterator, List
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,11 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 
 router = APIRouter(prefix="/ai")
+
+# Re-use the same limiter instance created in main.py.
+# 10 requests/minute per IP on the AI endpoint — stricter than the global
+# 600/minute because each call holds an Ollama thread for up to 15 seconds.
+_limiter = Limiter(key_func=get_remote_address)
 
 
 class AiQueryRequest(BaseModel):
@@ -171,8 +178,10 @@ async def _stream_ollama(system_prompt: str, question: str) -> AsyncIterator[str
 # ── Route ─────────────────────────────────────────────────────────────────────
 
 @router.post("/query")
+@_limiter.limit("10/minute")
 async def query_ai(
-    request: AiQueryRequest,
+    request: Request,               # Must be named "request" for slowapi
+    payload: AiQueryRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -186,7 +195,7 @@ async def query_ai(
         select(WorkspaceMember)
         .join(Workspace, Workspace.id == WorkspaceMember.workspace_id)
         .where(
-            WorkspaceMember.workspace_id == request.workspace_id,
+            WorkspaceMember.workspace_id == payload.workspace_id,
             WorkspaceMember.user_id == current_user.id,
             Workspace.deleted_at.is_(None),
         )
@@ -195,7 +204,7 @@ async def query_ai(
         raise HTTPException(status_code=403, detail="You do not have access to this workspace.")
 
     # Build rich analytics context
-    context = await _build_analytics_context(request.workspace_id, db)
+    context = await _build_analytics_context(payload.workspace_id, db)
 
     system_prompt = (
         "You are Axiomate Copilot, an expert product analytics assistant embedded inside "
@@ -207,7 +216,7 @@ async def query_ai(
     )
 
     return StreamingResponse(
-        _stream_ollama(system_prompt, request.question),
+        _stream_ollama(system_prompt, payload.question),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

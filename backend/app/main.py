@@ -50,15 +50,21 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # ── Middleware ─────────────────────────────────────────────────────────────────
-# TEMPORARY SDK TESTING: Allow all origins by using a catch-all regex.
-# We will change this later for production to strict ALLOWED_ORIGINS.
+# Production CORS: only allow our own frontend origin.
+# The wildcard allow_origin_regex=".*" was removed — it allowed ANY website
+# to make credentialed API calls on behalf of logged-in users (CSRF risk).
+ALLOWED = list({
+    "http://localhost",
+    "http://localhost:80",
+    "http://localhost:5173",      # Vite dev server
+    *settings.ALLOWED_ORIGINS,   # Additional origins from .env
+})
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS + ["http://localhost", "http://localhost:80"],
-    allow_origin_regex=".*", # ALLOW ALL
+    allow_origins=ALLOWED,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Workspace-ID"],
 )
 app.add_middleware(RequestLoggingMiddleware)
 
@@ -85,6 +91,8 @@ app.include_router(ai.router,          prefix=PREFIX, tags=["AI"])
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
+# Returns only { "status": "ok" } — enough for load balancers, nothing for
+# attackers. Never expose app name, version, or env details here.
 @app.get("/health", tags=["Health"])
 async def health_check():
-    return {"status": "ok", "app": settings.APP_NAME}
+    return {"status": "ok"}
