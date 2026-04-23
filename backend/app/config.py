@@ -5,7 +5,11 @@ class Settings(BaseSettings):
     #app
     APP_NAME: str = "Axiomate"
     DEBUG: bool = False
+    ENVIRONMENT: str = "production"   # "production" | "staging" | "development"
     SECRET_KEY: str
+
+    # Sentry — leave empty to disable error tracking
+    SENTRY_DSN: str = ""
 
     @field_validator("SECRET_KEY")
     @classmethod

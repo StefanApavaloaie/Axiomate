@@ -46,6 +46,9 @@ services:
       # Ollama Host (Points to the host machine running Ollama)
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2}
+      # Observability
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
     ports:
       - "8000:8000"
     depends_on:
@@ -67,6 +70,9 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:-change-this-huge-secure-secret-in-prod}
+      # Observability
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,6 +95,9 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:-change-this-huge-secure-secret-in-prod}
+      # Observability
+      - SENTRY_DSN=${SENTRY_DSN:-}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -103,7 +112,6 @@ services:
     restart: always
     ports:
       - "80:80"
-    # Frontend depends on backend for API calls (from users' browsers, but good to wait anyway)
     depends_on:
       - backend
 

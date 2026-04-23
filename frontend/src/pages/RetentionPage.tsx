@@ -144,7 +144,7 @@ export default function RetentionPage() {
                         <input
                             value={initialEvent}
                             onChange={(e) => setInitialEvent(e.target.value)}
-                            placeholder="e.g. signup"
+                            placeholder="e.g. page_view"
                             className="w-full px-4 py-2.5 rounded-xl bg-navy-900 border border-white/[0.08] text-white text-sm placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 transition-colors"
                         />
                     </div>

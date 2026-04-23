@@ -7,7 +7,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -86,16 +86,20 @@ async def get_retention(
     dt_to = datetime(date_to.year, date_to.month, date_to.day, 23, 59, 59, tzinfo=timezone.utc)
 
     # ── Step 1: Get each user's cohort date (first initial_event in range) ──────
+    # We use COALESCE(user_id, anonymous_id) so anonymous SDK visitors are
+    # included alongside authenticated users.
+    uid_expr = func.coalesce(Event.user_id, Event.anonymous_id)
+
     cohort_result = await db.execute(
-        select(Event.user_id, func.min(Event.occurred_at).label("first_event"))
+        select(uid_expr.label("uid"), func.min(Event.occurred_at).label("first_event"))
         .where(
             Event.workspace_id == workspace_id,
             Event.event_name == initial_event,
-            Event.user_id.is_not(None),
+            uid_expr.is_not(None),
             Event.occurred_at >= dt_from,
             Event.occurred_at <= dt_to,
         )
-        .group_by(Event.user_id)
+        .group_by(uid_expr)
     )
     cohort_rows = cohort_result.all()
 
@@ -110,7 +114,7 @@ async def get_retention(
             computed_at=datetime.now(timezone.utc),
         )
 
-    # Build user_id → cohort_date dict, truncated to the chosen granularity
+    # Build uid → cohort_date dict, truncated to the chosen granularity
     def truncate_date(d: date, gran: str) -> date:
         if gran == "day":
             return d
@@ -123,16 +127,16 @@ async def get_retention(
     for row in cohort_rows:
         raw = row.first_event
         as_date = raw.date() if hasattr(raw, "date") else raw
-        user_cohort[row.user_id] = truncate_date(as_date, granularity)
+        user_cohort[row.uid] = truncate_date(as_date, granularity)
 
     # ── Step 2: Get all return events for the cohort users ─────────────────────
     user_ids = list(user_cohort.keys())
     activity_result = await db.execute(
-        select(Event.user_id, Event.occurred_at)
+        select(uid_expr.label("uid"), Event.occurred_at)
         .where(
             Event.workspace_id == workspace_id,
             Event.event_name == return_event,
-            Event.user_id.in_(user_ids),
+            uid_expr.in_(user_ids),
         )
     )
     activity_rows = activity_result.all()
@@ -150,7 +154,7 @@ async def get_retention(
 
     # Map return events to cohort periods
     for row in activity_rows:
-        uid = row.user_id
+        uid = row.uid
         if uid not in user_cohort:
             continue
 

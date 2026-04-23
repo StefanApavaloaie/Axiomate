@@ -8,6 +8,7 @@ COPY package*.json ./
 RUN npm install
 
 # Copy the rest of the frontend code and build
+# Note: frontend/.env is copied here and Vite reads it automatically at build time
 COPY . .
 RUN npm run build
 

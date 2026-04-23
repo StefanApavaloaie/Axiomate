@@ -1,5 +1,7 @@
+import sys
+import asyncio
+import structlog
 import logging
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,8 +9,6 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-import sys
-import asyncio
 
 # Apply Windows event loop fix for psycopg if running on Windows
 if sys.platform == "win32":
@@ -17,20 +17,62 @@ if sys.platform == "win32":
 from app.config import settings
 from app.core.middleware import RequestLoggingMiddleware
 
-# ── Logging setup ─────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
-logger = logging.getLogger("axiomate")
+# ── Sentry (error tracking & performance monitoring) ──────────────────────────
+# Only activates when SENTRY_DSN is set — safe to leave empty in local dev.
+if settings.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.redis import RedisIntegration
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        environment=settings.ENVIRONMENT,
+        traces_sample_rate=0.2,   # Profile 20% of requests for performance data
+        integrations=[
+            FastApiIntegration(),
+            SqlalchemyIntegration(),
+            CeleryIntegration(),
+            RedisIntegration(),
+        ],
+    )
 
+# ── Structured Logging (structlog) ────────────────────────────────────────────
+# JSON output in production for log aggregators (Datadog, Loki, CloudWatch).
+# Human-readable coloured output in debug/dev mode.
+shared_processors = [
+    structlog.contextvars.merge_contextvars,
+    structlog.stdlib.add_log_level,
+    structlog.processors.TimeStamper(fmt="iso"),
+    structlog.processors.StackInfoRenderer(),
+    structlog.processors.format_exc_info,
+]
+if settings.DEBUG:
+    renderer = structlog.dev.ConsoleRenderer()
+else:
+    renderer = structlog.processors.JSONRenderer()
+
+structlog.configure(
+    processors=shared_processors + [renderer],
+    wrapper_class=structlog.make_filtering_bound_logger(
+        logging.DEBUG if settings.DEBUG else logging.INFO
+    ),
+    logger_factory=structlog.PrintLoggerFactory(),
+    cache_logger_on_first_use=True,
+)
+
+log = structlog.get_logger("axiomate")
+
+
+from contextlib import asynccontextmanager
 
 # ── Lifespan (startup / shutdown hooks) ───────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"Starting {settings.APP_NAME}...")
+    log.info("startup", app=settings.APP_NAME, env=settings.ENVIRONMENT,
+             sentry_enabled=bool(settings.SENTRY_DSN))
     yield
-    logger.info(f"Shutting down {settings.APP_NAME}...")
+    log.info("shutdown", app=settings.APP_NAME)
 
 
 # ── Rate Limiter ────────────────────────────────────────────────────────────────

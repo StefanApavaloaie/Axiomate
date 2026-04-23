@@ -19,8 +19,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
+# Make the entrypoint script executable
+RUN chmod +x start.sh
+
 # Expose port
 EXPOSE 8000
 
-# The command to run the application (can be overridden for Celery in docker-compose)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run migrations then start the API server.
+# Celery containers override this CMD via docker-compose `command:`.
+CMD ["sh", "start.sh"]

@@ -1,7 +1,10 @@
 (function (window, document) {
     if (window.axiomate && window.axiomate.initialized) return;
 
-    const AXIOMATE_URL = "/api/v1/ingest/";
+    // Detect where the script was loaded from to ensure data is sent to the correct backend
+    const scriptTag = document.currentScript || Array.from(document.getElementsByTagName('script')).find(s => s.src.includes('axiomate.js'));
+    const scriptOrigin = scriptTag ? new URL(scriptTag.src).origin : window.location.origin;
+    const AXIOMATE_URL = `${scriptOrigin}/api/v1/ingest/`;
     const STORAGE_KEY = "axiomate_anonymous_id";
     const SESSION_KEY = "axiomate_session_id";
 

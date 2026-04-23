@@ -10,3 +10,5 @@ python-jose
 httpx
 requests
 slowapi
+sentry-sdk[fastapi]
+structlog
