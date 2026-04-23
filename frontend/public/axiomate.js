@@ -1,7 +1,7 @@
 (function (window, document) {
     if (window.axiomate && window.axiomate.initialized) return;
 
-    const AXIOMATE_URL = "http://localhost:8000/api/v1/ingest/";
+    const AXIOMATE_URL = "/api/v1/ingest/";
     const STORAGE_KEY = "axiomate_anonymous_id";
     const SESSION_KEY = "axiomate_session_id";
 
@@ -89,6 +89,15 @@
                 console.error("Axiomate: Failed to send events", err);
                 this.queue.unshift(...batch); // Requeue on failure
             });
+        },
+        // push() allows the async snippet pattern to work even after the SDK has loaded.
+        // e.g. window.axiomate.push(["track", "event", {...}]) always works.
+        push: function (args) {
+            if (!Array.isArray(args)) return;
+            const method = args[0];
+            if (typeof this[method] === "function") {
+                this[method].apply(this, args.slice(1));
+            }
         }
     };
 

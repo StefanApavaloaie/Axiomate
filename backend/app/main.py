@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -64,9 +64,27 @@ app.add_middleware(
     allow_origins=ALLOWED,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Workspace-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", "X-Workspace-ID", "X-API-Key"],
 )
 app.add_middleware(RequestLoggingMiddleware)
+
+
+# ── Open CORS for the public ingest endpoint ───────────────────────────────────
+# The /ingest/ endpoint is a public SDK endpoint consumed by any customer website.
+# Its security comes from the X-API-Key header, NOT from origin restrictions.
+# We manually inject the necessary CORS headers for OPTIONS preflight requests.
+@app.middleware("http")
+async def ingest_cors_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api/v1/ingest"):
+        if request.method == "OPTIONS":
+            response = Response(status_code=200)
+        else:
+            response = await call_next(request)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key"
+        return response
+    return await call_next(request)
 
 
 # ── Routers ───────────────────────────────────────────────────────────────────

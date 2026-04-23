@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
+    Code,
     Settings,
     Key,
     Users,
@@ -204,10 +205,10 @@ function GeneralTab({ workspaceId }: { workspaceId: string }) {
         queryFn: () => workspacesApi.getById(workspaceId),
         enabled: !!workspaceId,
     })
-    
+
     const [name, setName] = useState('')
     const [slug, setSlug] = useState('')
-    
+
     // Initialize exactly once when workspace loads
     useEffect(() => {
         if (workspace && !name) {
@@ -457,7 +458,7 @@ function InviteMemberModal({
     onSuccess: () => void
 }) {
     const [email, setEmail] = useState('')
-    const [role, setRole] = useState<'owner'|'admin'|'member'|'viewer'>('member')
+    const [role, setRole] = useState<'owner' | 'admin' | 'member' | 'viewer'>('member')
     const [error, setError] = useState<string | null>(null)
 
     const { mutate, isPending } = useMutation({
@@ -553,7 +554,7 @@ function TeamTab({ workspaceId }: { workspaceId: string }) {
     })
 
     const { mutate: changeRole } = useMutation({
-        mutationFn: ({ userId, role }: { userId: string, role: string }) => 
+        mutationFn: ({ userId, role }: { userId: string, role: string }) =>
             workspacesApi.changeMemberRole(workspaceId, userId, role),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['members', workspaceId] })
@@ -649,7 +650,7 @@ function TeamTab({ workspaceId }: { workspaceId: string }) {
                                             <RoleBadge role={member.role} />
                                         )}
                                     </div>
-                                    
+
                                     {/* Actions */}
                                     <div className="w-16 flex justify-end">
                                         {!isMe && canManageMembers && member.role !== 'owner' && (
@@ -658,7 +659,7 @@ function TeamTab({ workspaceId }: { workspaceId: string }) {
                                             ) : (
                                                 <button
                                                     onClick={() => {
-                                                        if(confirm(`Remove ${displayName} from workspace?`)) setRemoving(member.user_id); removeMember(member.user_id)
+                                                        if (confirm(`Remove ${displayName} from workspace?`)) setRemoving(member.user_id); removeMember(member.user_id)
                                                     }}
                                                     className="p-1.5 rounded-md text-slate-600 hover:bg-red-500/10 hover:text-red-400 transition-colors"
                                                 >
@@ -675,8 +676,8 @@ function TeamTab({ workspaceId }: { workspaceId: string }) {
             </div>
 
             {showInvite && (
-                <InviteMemberModal 
-                    workspaceId={workspaceId} 
+                <InviteMemberModal
+                    workspaceId={workspaceId}
                     onClose={() => setShowInvite(false)}
                     onSuccess={() => {
                         setShowInvite(false)
@@ -803,9 +804,92 @@ function NotificationsTab({ workspaceId }: { workspaceId: string }) {
     )
 }
 
+// ─── Tab: Installation ────────────────────────────────────────────────────────
+function InstallationTab({ workspaceId }: { workspaceId: string }) {
+    const { data: keys = [], isLoading } = useQuery({
+        queryKey: ['api-keys', workspaceId],
+        queryFn: () => apiKeysApi.list(workspaceId),
+        enabled: !!workspaceId,
+    })
+
+    const [selectedKey, setSelectedKey] = useState<string>('')
+
+    useEffect(() => {
+        // Auto-select the first key if available and none selected
+        if (keys.length > 0 && !selectedKey) {
+            setSelectedKey(keys[0].id)
+        }
+    }, [keys, selectedKey])
+
+    const origin = window.location.origin
+
+    const snippet = `<!-- Paste this in your <head> -->
+<script src="${origin}/axiomate.js" async></script>
+<script>
+  window.axiomate = window.axiomate || [];
+  window.axiomate.push(["init", "axm_live_eAwp14E_ckA8DA9Kz4uvebyPRDJY0ss4m869IQwWu78"]);
+  
+  // Example usage (optional)
+  // window.axiomate.push(["track", "user_signed_up", { plan: "Pro" }]);
+</script>`
+
+    return (
+        <div className="space-y-6">
+            <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-2xl p-5">
+                <div className="flex items-start gap-3">
+                    <Code size={18} className="text-accent-cyan mt-0.5 flex-shrink-0" />
+                    <div>
+                        <h3 className="text-sm font-semibold text-white mb-1">Tracking Snippet</h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                            Embed this lightweight script in the <code>&lt;head&gt;</code> of your website to start capturing events automatically.
+                            It handles offline queueing, UUID generation, and page views out of the box.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-navy-800 border border-white/[0.07] rounded-2xl p-6 space-y-4">
+                <div>
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Select API Key for Snippet</label>
+                    {isLoading ? (
+                        <div className="h-10 bg-white/[0.03] animate-pulse rounded-xl" />
+                    ) : keys.length === 0 ? (
+                        <div className="flex items-center justify-between p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 text-sm">
+                            <span>You need to create an API Key first!</span>
+                        </div>
+                    ) : (
+                        <select
+                            value={selectedKey}
+                            onChange={(e) => setSelectedKey(e.target.value)}
+                            className="w-full px-3 py-2.5 rounded-xl bg-navy-900 border border-white/[0.08] text-white text-sm focus:outline-none focus:border-cyan-500/50 transition-colors cursor-pointer appearance-none"
+                        >
+                            <option value="" disabled>Select a key...</option>
+                            {keys.map((k: ApiKeyResponse) => (
+                                <option key={k.id} value={k.id}>
+                                    {k.name} ({k.key_prefix}...)
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                </div>
+
+                <div className="pt-2 relative">
+                    <div className="absolute top-4 right-4 z-10 bg-navy-900 border border-white/[0.1] rounded-lg">
+                        <CopyButton text={snippet} />
+                    </div>
+                    <pre className="bg-navy-900/80 border border-white/[0.08] rounded-xl p-5 overflow-x-auto text-xs font-mono text-slate-300 leading-relaxed">
+                        <code>{snippet}</code>
+                    </pre>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 // ─── Settings Page ────────────────────────────────────────────────────────────
 const TABS = [
     { id: 'general', label: 'General', icon: Building2 },
+    { id: 'installation', label: 'Installation', icon: Code },
     { id: 'api-keys', label: 'API Keys', icon: Key },
     { id: 'team', label: 'Team', icon: Users },
     { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -837,11 +921,10 @@ export default function SettingsPage() {
                         key={id}
                         id={`settings-tab-${id}`}
                         onClick={() => setActiveTab(id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                            activeTab === id
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === id
                                 ? 'bg-white/[0.08] text-white shadow-sm'
                                 : 'text-slate-500 hover:text-slate-300'
-                        }`}
+                            }`}
                     >
                         <Icon size={14} />
                         {label}
@@ -863,6 +946,7 @@ export default function SettingsPage() {
             {workspaceId && (
                 <div className="mt-8 animate-fade-in">
                     {activeTab === 'general' && <GeneralTab workspaceId={workspaceId} />}
+                    {activeTab === 'installation' && <InstallationTab workspaceId={workspaceId} />}
                     {activeTab === 'api-keys' && <ApiKeysTab workspaceId={workspaceId} />}
                     {activeTab === 'team' && <TeamTab workspaceId={workspaceId} />}
                     {activeTab === 'notifications' && <NotificationsTab workspaceId={workspaceId} />}

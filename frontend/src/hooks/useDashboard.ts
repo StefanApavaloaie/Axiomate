@@ -21,7 +21,9 @@ export function useOverview(range: DateRange) {
         queryKey: ['dashboard', 'overview', range, workspaceId],
         queryFn: () => dashboardApi.getOverview(workspaceId!, params),
         enabled: !!workspaceId,
-        staleTime: 5 * 60 * 1000,
+        staleTime: 0,
+        refetchInterval: 30_000,         // Auto-refresh every 30 seconds
+        refetchOnWindowFocus: true,      // Refresh when user switches back to the tab
     })
 }
 
@@ -32,6 +34,8 @@ export function useEventBreakdown(range: DateRange) {
         queryKey: ['dashboard', 'breakdown', range, workspaceId],
         queryFn: () => dashboardApi.getEventBreakdown(workspaceId!, params),
         enabled: !!workspaceId,
-        staleTime: 5 * 60 * 1000,
+        staleTime: 0,
+        refetchInterval: 30_000,         // Auto-refresh every 30 seconds
+        refetchOnWindowFocus: true,      // Refresh when user switches back to the tab
     })
 }
