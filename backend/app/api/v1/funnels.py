@@ -223,3 +223,32 @@ async def export_funnel_results_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=funnel_{funnel_id}.csv"},
     )
+
+
+@router.delete("/{workspace_id}/{funnel_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_funnel(
+    workspace_id: uuid.UUID,
+    funnel_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    # Only owners and admins ("team leaders") may delete funnels.
+    # Members and viewers receive 403 Forbidden.
+    member: WorkspaceMember = Depends(require_role("owner", "admin")),
+):
+    """
+    Permanently deletes a funnel and clears its cached results.
+    Restricted to workspace owners and admins.
+    """
+    result = await db.execute(
+        select(Funnel).where(Funnel.id == funnel_id, Funnel.workspace_id == workspace_id)
+    )
+    funnel = result.scalar_one_or_none()
+    if not funnel:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Funnel not found.")
+
+    await db.delete(funnel)
+    await db.commit()
+
+    # Evict all cached result keys for this funnel
+    cache_pattern = f"axiomate:funnel:results:{workspace_id}:{funnel_id}:*"
+    await cache.delete_pattern(cache_pattern)

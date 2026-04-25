@@ -77,6 +77,9 @@ export const funnelsApi = {
         apiClient
             .get<FunnelResultResponse>(`/funnels/${workspaceId}/${funnelId}/results`, { params })
             .then((r) => r.data),
+    /** Owner / admin only — returns 403 for members and viewers */
+    delete: (workspaceId: string, funnelId: string) =>
+        apiClient.delete(`/funnels/${workspaceId}/${funnelId}`).then((r) => r.data),
 }
 
 // ─── Retention ────────────────────────────────────────────────────────────────

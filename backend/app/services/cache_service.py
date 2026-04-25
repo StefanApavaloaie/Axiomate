@@ -83,6 +83,20 @@ class CacheService:
         except Exception as exc:
             logger.warning("Cache DELETE error for key=%r: %s", key, exc)
 
+    async def delete_pattern(self, pattern: str) -> None:
+        """
+        Delete all keys matching a Redis glob pattern.
+        Example pattern: "axiomate:funnel:results:{workspace_id}:{funnel_id}:*"
+        """
+        try:
+            client = await self._get_client()
+            keys = await client.keys(pattern)
+            if keys:
+                await client.delete(*keys)
+                logger.info("Cache: evicted %d keys matching %r", len(keys), pattern)
+        except Exception as exc:
+            logger.warning("Cache DELETE_PATTERN error for pattern=%r: %s", pattern, exc)
+
     async def invalidate_workspace(self, workspace_id: str) -> None:
         """
         Delete ALL cached results for a workspace at once.

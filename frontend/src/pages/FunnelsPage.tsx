@@ -1,13 +1,14 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
-import { Plus, Filter, ChevronRight, Calendar, Download } from 'lucide-react'
-import { funnelsApi } from '@/api'
+import { Plus, Filter, ChevronRight, Calendar, Download, Trash2 } from 'lucide-react'
+import { funnelsApi, workspacesApi } from '@/api'
 import { WorkspaceStorage } from '@/api/client'
 import FunnelChart from '@/components/charts/FunnelChart'
 import CreateFunnelModal from '@/components/shared/CreateFunnelModal'
 import type { FunnelResponse } from '@/types'
 import { downloadCsv } from '@/utils/csvExport'
+import { useAuthContext } from '@/providers/AuthProvider'
 
 type DateRange = '7d' | '30d' | '90d'
 
@@ -43,10 +44,33 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
 
 export default function FunnelsPage() {
     const workspaceId = WorkspaceStorage.get()
+    const { user } = useAuthContext()
+    const queryClient = useQueryClient()
+
     const [showModal, setShowModal] = useState(false)
     const [selectedFunnel, setSelectedFunnel] = useState<FunnelResponse | null>(null)
     const [range, setRange] = useState<DateRange>('30d')
     const [downloading, setDownloading] = useState(false)
+    const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+    // ── Fetch current user's role in this workspace ───────────────────────────
+    const { data: members = [] } = useQuery({
+        queryKey: ['workspace-members', workspaceId],
+        queryFn: () => workspacesApi.getMembers(workspaceId!),
+        enabled: !!workspaceId && !!user,
+    })
+    const myRole = members.find((m) => m.user_email === user?.email)?.role ?? null
+    const isLeader = myRole === 'owner' || myRole === 'admin'
+
+    // ── Delete mutation ───────────────────────────────────────────────────────
+    const deleteMutation = useMutation({
+        mutationFn: (funnelId: string) => funnelsApi.delete(workspaceId!, funnelId),
+        onSuccess: (_, funnelId) => {
+            queryClient.invalidateQueries({ queryKey: ['funnels', workspaceId] })
+            if (selectedFunnel?.id === funnelId) setSelectedFunnel(null)
+            setConfirmDeleteId(null)
+        },
+    })
 
     const handleExport = async () => {
         if (!workspaceId || !selectedFunnel) return
@@ -108,6 +132,7 @@ export default function FunnelsPage() {
                     Please select or create a workspace using the switcher in the top bar before creating funnels.
                 </div>
             )}
+
             {funnelsLoading ? (
                 <div className="flex items-center justify-center py-24">
                     <div className="w-8 h-8 rounded-full border-2 border-transparent border-t-accent-cyan animate-spin" />
@@ -122,33 +147,71 @@ export default function FunnelsPage() {
                             Saved Funnels ({funnels.length})
                         </p>
                         {funnels.map((funnel) => (
-                            <button
+                            <div
                                 key={funnel.id}
-                                onClick={() => setSelectedFunnel(funnel)}
                                 className={`w-full text-left px-4 py-3.5 rounded-xl border transition-all duration-150 group ${selectedFunnel?.id === funnel.id
                                     ? 'bg-cyan-500/10 border-cyan-500/30 shadow-glow-cyan'
                                     : 'bg-navy-800/50 border-white/[0.06] hover:border-white/[0.12] hover:bg-navy-800'
                                     }`}
                             >
                                 <div className="flex items-center justify-between">
-                                    <div>
-                                        <p
-                                            className={`font-medium text-sm ${selectedFunnel?.id === funnel.id ? 'text-accent-cyan' : 'text-white'
-                                                }`}
-                                        >
-                                            {funnel.name}
-                                        </p>
-                                        <p className="text-slate-500 text-xs mt-0.5">
-                                            {funnel.steps.length} steps
-                                        </p>
-                                    </div>
-                                    <ChevronRight
-                                        size={15}
-                                        className={`flex-shrink-0 transition-colors ${selectedFunnel?.id === funnel.id
-                                            ? 'text-accent-cyan'
-                                            : 'text-slate-600 group-hover:text-slate-400'
-                                            }`}
-                                    />
+                                    {/* Clickable name area */}
+                                    <button
+                                        className="flex-1 text-left"
+                                        onClick={() => setSelectedFunnel(funnel)}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className={`font-medium text-sm ${selectedFunnel?.id === funnel.id ? 'text-accent-cyan' : 'text-white'}`}>
+                                                    {funnel.name}
+                                                </p>
+                                                <p className="text-slate-500 text-xs mt-0.5">
+                                                    {funnel.steps.length} steps
+                                                </p>
+                                            </div>
+                                            <ChevronRight
+                                                size={15}
+                                                className={`flex-shrink-0 transition-colors ${selectedFunnel?.id === funnel.id
+                                                    ? 'text-accent-cyan'
+                                                    : 'text-slate-600 group-hover:text-slate-400'
+                                                    }`}
+                                            />
+                                        </div>
+                                    </button>
+
+                                    {/* Delete button — visible only to owners/admins */}
+                                    {isLeader && (
+                                        <div className="ml-2 flex-shrink-0">
+                                            {confirmDeleteId === funnel.id ? (
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        onClick={() => deleteMutation.mutate(funnel.id)}
+                                                        disabled={deleteMutation.isPending}
+                                                        className="px-2 py-1 rounded-md bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-semibold hover:bg-red-500/30 transition-all disabled:opacity-50"
+                                                    >
+                                                        {deleteMutation.isPending ? '…' : 'Confirm'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setConfirmDeleteId(null)}
+                                                        className="px-2 py-1 rounded-md text-slate-500 text-[10px] hover:text-white transition-colors"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        setConfirmDeleteId(funnel.id)
+                                                    }}
+                                                    className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                                    title="Delete funnel (admin/owner only)"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                                 {/* Step preview */}
                                 <div className="mt-2 flex items-center gap-1 flex-wrap">
@@ -163,7 +226,7 @@ export default function FunnelsPage() {
                                         </span>
                                     )}
                                 </div>
-                            </button>
+                            </div>
                         ))}
                     </div>
 
@@ -199,7 +262,6 @@ export default function FunnelsPage() {
                                                 </button>
                                             ))}
                                         </div>
-                                        {/* Export CSV */}
                                         {result && (
                                             <button
                                                 id="funnel-export-btn"
